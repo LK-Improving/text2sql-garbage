@@ -1,0 +1,79 @@
+{
+  "stamp": "20260911_170800",
+  "summary": {
+    "total": 4,
+    "acc": 25,
+    "answerAcc": 25,
+    "execRate": 50,
+    "avg": 5.6,
+    "p95": 3.6
+  },
+  "byCategory": {
+    "区域趋势": {
+      "total": 1,
+      "ok": 1
+    },
+    "车辆排行": {
+      "total": 1,
+      "ok": 0
+    },
+    "预警明细": {
+      "total": 1,
+      "ok": 0
+    },
+    "综合查询": {
+      "total": 1,
+      "ok": 0
+    }
+  },
+  "results": [
+    {
+      "id": "A02",
+      "category": "区域趋势",
+      "difficulty": "easy",
+      "question": "本月各区域的清运量排名",
+      "expected": "answer",
+      "status": "match",
+      "sql": "SELECT r.region_name, SUM(rm.total_weight) AS total_weight FROM t_route_manifest rm JOIN t_region r ON rm.region_id = r.id WHERE rm.route_date >= date_trunc('month', CURRENT_DATE) AND rm.route_date < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month' GROUP BY r.region_name ORDER BY total_weight DESC LIMIT 1000",
+      "error": null,
+      "elapsed": 1605,
+      "detail": "结果一致（5 行）"
+    },
+    {
+      "id": "B04",
+      "category": "车辆排行",
+      "difficulty": "hard",
+      "question": "每个区域清运量最大的那辆车分别是谁",
+      "expected": "answer",
+      "status": "false_reject",
+      "sql": "WITH vehicle_weight AS (\n  SELECT rm.region_id,\n         rm.vehicle_id,\n         SUM(rm.total_weight) AS total_weight\n  FROM t_route_manifest rm\n  GROUP BY rm.region_id, rm.vehicle_id\n),\nranked AS (\n  SELECT vw.region_id,\n         vw.vehicle_id,\n         vw.total_weight,\n         ROW_NUMBER() OVER (PARTITION BY vw.region_id ORDER BY vw.total_weight DESC) AS rn\n  FROM vehicle_weight vw\n)\nSELECT r.region_name,\n       v.plate_number,\n       ranked.total_weight AS total_weight_kg\nFROM ranked\nJOIN t_region r ON r.id = ranked.region_id\nJOIN t_vehicle v ON v.id = ranked.vehicle_id\nWHERE ranked.rn = 1\nORDER BY ranked.total_weight DESC\nLIMIT 1000",
+      "error": "SQL 安全校验不通过: 不允许访问的表：ranked（白名单：t_region、t_vehicle、t_route_manifest、t_alert、t_weigh_bill）",
+      "elapsed": 2863,
+      "detail": "SQL 安全校验不通过: 不允许访问的表：ranked（白名单：t_region、t_vehicle、t_route_manifest、t_alert、t_weigh_bill）"
+    },
+    {
+      "id": "C01",
+      "category": "预警明细",
+      "difficulty": "medium",
+      "question": "最近 3 天哪些车发生了超速预警",
+      "expected": "answer",
+      "status": "mismatch",
+      "sql": "SELECT v.plate_number, r.region_name, COUNT(*) AS alert_count, MAX(a.alert_time) AS last_alert_time FROM t_alert a JOIN t_vehicle v ON a.vehicle_id = v.id LEFT JOIN t_region r ON v.region_id = r.id WHERE a.alert_type LIKE '%超速%' AND a.alert_time >= CURRENT_DATE - INTERVAL '3 days' GROUP BY v.plate_number, r.region_name ORDER BY alert_count DESC, last_alert_time DESC LIMIT 1000",
+      "error": null,
+      "elapsed": 3557,
+      "detail": "结果不一致：实际 6 行 / 期望 6 行"
+    },
+    {
+      "id": "F01",
+      "category": "综合查询",
+      "difficulty": "hard",
+      "question": "这个月既有超速预警、清运量又排前 5 的车",
+      "expected": "answer",
+      "status": "false_reject",
+      "sql": "WITH month_manifest AS (SELECT vehicle_id, SUM(total_weight) AS total_weight, SUM(total_trips) AS total_trips, ROW_NUMBER() OVER (ORDER BY SUM(total_weight) DESC) AS weight_rank FROM t_route_manifest WHERE route_date >= date_trunc('month', CURRENT_DATE)::date AND route_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date GROUP BY vehicle_id), month_alert AS (SELECT vehicle_id, COUNT(*) AS alert_count FROM t_alert WHERE alert_type = '超速' AND alert_time >= date_trunc('month', CURRENT_DATE) AND alert_time < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month' GROUP BY vehicle_id) SELECT v.plate_number, r.region_name, mm.total_weight, mm.total_trips, ma.alert_count, mm.weight_rank FROM month_manifest mm JOIN month_alert ma ON ma.vehicle_id = mm.vehicle_id JOIN t_vehicle v ON v.id = mm.vehicle_id JOIN t_region r ON r.id = v.region_id WHERE mm.weight_rank <= 5 ORDER BY mm.weight_rank LIMIT 5",
+      "error": "SQL 安全校验不通过: 不允许访问的表：month_alert（白名单：t_region、t_vehicle、t_route_manifest、t_alert、t_weigh_bill）",
+      "elapsed": 14491,
+      "detail": "SQL 安全校验不通过: 不允许访问的表：month_alert（白名单：t_region、t_vehicle、t_route_manifest、t_alert、t_weigh_bill）"
+    }
+  ]
+}

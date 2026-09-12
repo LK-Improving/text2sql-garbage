@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="0Nv6xenYOVv2EttfrQkeUW">
+<head data-page-node-id="LxChcGNIixA3wC0yWUk7NF">
+<meta charset="UTF-8" data-page-node-id="6kPo8SSVBHBlIw3iDA220x" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="hz9zONgjpC4CMb82mis3y3" />
+<title>垃圾清运 Text-to-SQL · 结果渲染 Demo</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f7fa; color: #1f2329; padding: 24px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header h1 { font-size: 20px; margin: 0 0 4px; }
+  header p { color: #646a73; margin: 0 0 20px; font-size: 13px; }
+  .card {
+    background: #fff; border: 1px solid #e5e6eb; border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .card h3 { margin: 0 0 10px; font-size: 14px; color: #1f2329; display:flex; align-items:center; gap:6px;}
+  .tag { font-size:11px; background:#eef2ff; color:#3b5bdb; padding:2px 8px; border-radius:10px; }
+  #sql-editor { height: 120px; border:1px solid #e5e6eb; border-radius:8px; overflow:hidden; }
+  .sql-fallback { margin:0; padding:12px; background:#1e1e1e; color:#d4d4d4; font-family:"Cascadia Code",Consolas,monospace; font-size:12px; white-space:pre-wrap; border-radius:8px;}
+  .comp { margin-bottom: 14px; }
+  .md { font-size: 14px; line-height: 1.7; }
+  .md strong { color:#1d4ed8; }
+  figure { margin: 0; }
+  figure img { max-width: 100%; border:1px solid #eef; border-radius:8px; }
+  figcaption { font-size:12px; color:#8a9099; text-align:center; margin-top:6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #e5e6eb; padding: 8px 10px; text-align: left; }
+  th { background: #f2f3f5; font-weight: 600; }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  .excel-btn {
+    background:#16a34a; color:#fff; border:none; padding:10px 16px; border-radius:8px;
+    font-size:13px; cursor:pointer;
+  }
+  .excel-btn:hover { background:#15803d; }
+  .raw-toggle { cursor:pointer; color:#3b5bdb; font-size:13px; user-select:none; }
+  #raw-json { display:none; white-space:pre-wrap; font-size:12px; background:#0d1117; color:#c9d1d9; padding:14px; border-radius:8px; overflow:auto; max-height:420px;}
+  .legend span { display:inline-block; background:#eef2ff; color:#3b5bdb; border-radius:6px; padding:3px 9px; margin:3px 4px 0 0; font-size:12px;}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+</head>
+<body data-page-node-id="6NaqU9n2iGFL3BU7qM7xCo">
+<div class="wrap" data-page-node-id="KZUsPAICN2AZuzbR9uDTRu">
+  <header data-page-node-id="TAhDbA3pEHnXD2XCuaRIb8">
+    <h1 data-page-node-id="gjRg0qoNwc2iOauypB66VO">🗑️ 垃圾清运 Text-to-SQL · 结果渲染 Demo</h1>
+    <p data-page-node-id="f4t7oQCaX6yTCqsJ1P4LZH">后端返回一份 <b data-page-node-id="7aqVnOYTXvydCSiYlsKJSe">OutputConfig(JSON)</b>，前端 <b data-page-node-id="hKX261vTi0vDGtLyssB0kA">ResultRenderer</b> 按 <code data-page-node-id="05Nu8HIesJChm4GqUK0Xdf">components[].type</code> 分发到对应组件。</p>
+    <div class="legend" data-page-node-id="AgrtlMAv7bRIzLqReJeWWm">
+      <span data-page-node-id="DaOs04wNQuujGkL7XeCOEj">type: markdown</span><span data-page-node-id="GOyj0kAU7LXMEAzXDTpkwJ">type: image</span><span data-page-node-id="Qn5d87Qnnco9A1BymJELAE">type: table</span>
+      <span data-page-node-id="W5XasrOGRvoVdzFZaw02TY">type: echarts</span><span data-page-node-id="HVqfBOHonYr5t05XyUtyX4">type: excel_download</span>
+    </div>
+  </header>
+
+  <div class="card" data-page-node-id="HewiQNLgWCzqiQRHJy9lko">
+    <h3 data-page-node-id="7wgfnGj2H0bFmK9CLYWO2E">生成的 SQL <span class="tag" data-page-node-id="8oS048Kb6Mld4sOAGeVDzS">Monaco Editor</span></h3>
+    <div id="sql-editor" data-page-node-id="dnSZuFR8BU0JzUUAQRQVyN"></div>
+  </div>
+
+  <div class="card" data-page-node-id="svMz7TgOQlE2Tp5P5IKPQ3">
+    <h3 data-page-node-id="SqYExB0hAIBspe2uMdLcca">渲染结果（按 type 分发）</h3>
+    <div id="result" data-page-node-id="sqSJVO0RgT9zAzUDBNiJLg"></div>
+  </div>
+
+  <div class="card" data-page-node-id="aAcGpYxmcccY9uzqas39iJ">
+    <span class="raw-toggle" id="raw-toggle" data-page-node-id="RhoiCBOfFkfRo19kuSc7BQ">▸ 查看原始 JSON 配置</span>
+    <pre id="raw-json" data-page-node-id="KQFhk0rREHqT5u6p1Hxr1B"></pre>
+  </div>
+</div>
+
+<script>
+/* ---------- 内嵌 SVG：整体架构示意（离线可用，避免外链图片失效） ---------- */
+const ARCH_SVG = "data:image/svg+xml;utf8," + encodeURIComponent(
+`<svg xmlns="http://www.w3.org/2000/svg" width="680" height="90">
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="rgb(120,120,120)"/></marker></defs>
+  <g font-size="12" text-anchor="middle" font-family="sans-serif">
+    <rect x="8" y="30" width="86" height="30" rx="6" fill="rgb(227,242,253)" stroke="rgb(33,150,243)"/>
+    <text x="51" y="49" fill="rgb(13,71,161)">提问</text>
+    <line x1="96" y1="45" x2="116" y2="45" stroke="rgb(120,120,120)" marker-end="url(#a)"/>
+    <rect x="120" y="30" width="90" height="30" rx="6" fill="rgb(232,245,233)" stroke="rgb(76,175,80)"/>
+    <text x="165" y="49" fill="rgb(27,94,32)">SchemaTool</text>
+    <line x1="212" y1="45" x2="232" y2="45" stroke="rgb(120,120,120)" marker-end="url(#a)"/>
+    <rect x="234" y="30" width="86" height="30" rx="6" fill="rgb(255,243,224)" stroke="rgb(255,152,0)"/>
+    <text x="277" y="49" fill="rgb(230,81,0)">LLM</text>
+    <line x1="322" y1="45" x2="342" y2="45" stroke="rgb(120,120,120)" marker-end="url(#a)"/>
+    <rect x="344" y="30" width="86" height="30" rx="6" fill="rgb(252,228,236)" stroke="rgb(233,30,99)"/>
+    <text x="387" y="49" fill="rgb(136,14,79)">校验</text>
+    <line x1="432" y1="45" x2="452" y2="45" stroke="rgb(120,120,120)" marker-end="url(#a)"/>
+    <rect x="454" y="30" width="86" height="30" rx="6" fill="rgb(237,231,246)" stroke="rgb(156,39,176)"/>
+    <text x="497" y="49" fill="rgb(74,20,140)">执行</text>
+    <line x1="542" y1="45" x2="562" y2="45" stroke="rgb(120,120,120)" marker-end="url(#a)"/>
+    <rect x="564" y="30" width="86" height="30" rx="6" fill="rgb(224,247,250)" stroke="rgb(0,188,212)"/>
+    <text x="607" y="49" fill="rgb(0,96,100)">渲染</text>
+  </g>
+</svg>`);
+
+/* ---------- 后端返回的 OutputConfig（垃圾清运：各车辆上月清运量排行） ---------- */
+const outputConfig = {
+  sql: "SELECT v.plate_number AS 车牌号, COUNT(r.id) AS 出车趟次, SUM(r.total_weight) AS 总清运量_kg FROM t_route_manifest r JOIN t_vehicle v ON r.vehicle_id = v.id WHERE r.route_date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH) AND r.status = 'completed' GROUP BY v.id, v.plate_number ORDER BY 总清运量_kg DESC LIMIT 10;",
+  title: "各车辆上月清运量排行",
+  summary: "✅ 查询成功！共找到 **10** 辆车的清运数据。排名前3：**浙A·88888**（152.3吨）、**浙A·66666**（148.7吨）、**浙A·77777**（132.1吨）。",
+  components: [
+    { type: "markdown", data: { content: "✅ 查询成功！共找到 **10** 辆车的清运数据。排名前3：**浙A·88888**（152.3吨）、**浙A·66666**（148.7吨）、**浙A·77777**（132.1吨）。" } },
+    { type: "image",   data: { url: "__ARCH_SVG__", caption: "垃圾清运 Text-to-SQL 整体架构（提问→Schema→LLM→校验→执行→渲染）" } },
+    { type: "table",   data: {
+        columns: [ { field: "车牌号", label: "车牌号" }, { field: "出车趟次", label: "出车趟次" }, { field: "总清运量_kg", label: "总清运量(kg)" } ],
+        rows: [
+          { 车牌号: "浙A·88888", 出车趟次: 86, 总清运量_kg: 152300 },
+          { 车牌号: "浙A·66666", 出车趟次: 79, 总清运量_kg: 148700 },
+          { 车牌号: "浙A·77777", 出车趟次: 74, 总清运量_kg: 132100 }
+        ]
+      }
+    },
+    { type: "echarts", data: {
+        chartType: "bar", title: "各车辆上月清运量排行(kg)",
+        xAxisData: ["浙A·88888", "浙A·66666", "浙A·77777"],
+        series: [ { name: "总清运量(kg)", data: [152300, 148700, 132100] } ]
+      }
+    },
+    { type: "excel_download", data: { url: "#", filename: "各车辆上月清运量排行.xlsx", expire: "10分钟" } }
+  ]
+};
+
+/* 保存最近一份表格数据，供 Excel 下载按钮真实生成文件使用 */
+let lastTable = null;
+
+/* ---------- 前端 ResultRenderer：按 type 分发 ---------- */
+function renderComponents(components, container) {
+  container.innerHTML = "";
+  components.forEach(comp => {
+    const el = document.createElement("div");
+    el.className = "comp comp-" + comp.type;
+    switch (comp.type) {
+      case "markdown":
+        el.innerHTML = '<div class="md">' + marked.parse(comp.data.content) + "</div>";
+        break;
+      case "image": {
+        const url = comp.data.url === "__ARCH_SVG__" ? ARCH_SVG : comp.data.url;
+        el.innerHTML = `<figure><img src="${url}" alt="${comp.data.caption||""}"/><figcaption>${comp.data.caption||""}</figcaption></figure>`;
+        break;
+      }
+      case "table": {
+        lastTable = comp.data;
+        el.appendChild(buildTable(comp.data));
+        break;
+      }
+      case "echarts": {
+        const div = document.createElement("div");
+        div.style.height = "320px";
+        el.appendChild(div);
+        const chart = echarts.init(div);
+        chart.setOption(comp.data.option || buildEchartsOption(comp.data));
+        break;
+      }
+      case "excel_download": {
+        const btn = document.createElement("button");
+        btn.className = "excel-btn";
+        btn.textContent = "⬇️ 下载 Excel 报表（" + (comp.data.expire || "") + "内有效）";
+        btn.onclick = () => downloadExcel(comp.data.filename);
+        el.appendChild(btn);
+        break;
+      }
+      default:
+        /* 未知 type 静默忽略：后端新增组件类型时前端不崩溃（向前兼容） */
+        el.remove();
+    }
+    container.appendChild(el);
+  });
+}
+
+function buildTable(data) {
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const htr = document.createElement("tr");
+  data.columns.forEach(c => { const th = document.createElement("th"); th.textContent = c.label; htr.appendChild(th); });
+  thead.appendChild(htr); table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  data.rows.forEach(row => {
+    const tr = document.createElement("tr");
+    data.columns.forEach(c => { const td = document.createElement("td"); td.textContent = row[c.field]; tr.appendChild(td); });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildEchartsOption(d) {
+  return {
+    title: { text: d.title, left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { trigger: "axis" },
+    grid: { left: 60, right: 30, bottom: 60, top: 50 },
+    xAxis: { type: "category", data: d.xAxisData, axisLabel: { interval: 0, rotate: d.xAxisData.length > 4 ? 20 : 0 } },
+    yAxis: { type: "value" },
+    series: (d.series || []).map(s => ({ name: s.name, type: d.chartType || "bar", data: s.data, smooth: d.chartType === "line" }))
+  };
+}
+
+function downloadExcel(filename) {
+  if (!lastTable) { alert("暂无表格数据可导出"); return; }
+  const rows = lastTable.rows.map(r => {
+    const o = {};
+    lastTable.columns.forEach(c => o[c.label] = r[c.field]);
+    return o;
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  XLSX.writeFile(wb, filename || "export.xlsx");
+}
+
+/* ---------- SQL 编辑器（Monaco，失败时降级高亮） ---------- */
+function initSqlEditor(sqlText) {
+  const holder = document.getElementById("sql-editor");
+  const fallback = (txt) => { holder.innerHTML = '<pre class="sql-fallback">' + txt.replace(/</g, "&lt;") + "</pre>"; };
+  try {
+    if (window.require) {
+      require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" } });
+      require(["vs/editor/editor.main"], function () {
+        monaco.editor.create(holder, { value: sqlText, language: "sql", readOnly: false, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false });
+      });
+      setTimeout(() => { if (!holder.querySelector(".monaco-editor")) fallback(sqlText); }, 4000);
+    } else {
+      fallback(sqlText);
+    }
+  } catch (e) { fallback(sqlText); }
+}
+
+/* ---------- 启动 ---------- */
+initSqlEditor(outputConfig.sql);
+renderComponents(outputConfig.components, document.getElementById("result"));
+document.getElementById("raw-json").textContent = JSON.stringify(outputConfig, null, 2);
+document.getElementById("raw-toggle").onclick = function () {
+  const pre = document.getElementById("raw-json");
+  const open = pre.style.display === "block";
+  pre.style.display = open ? "none" : "block";
+  this.textContent = (open ? "▸" : "▾") + " 查看原始 JSON 配置";
+};
+</script>
+</body>
+</html>
