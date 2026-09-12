@@ -13,6 +13,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1129.0",
     "@langchain/core": "^1.2.10",
     "@langchain/openai": "^1.5.12",
+    "@monaco-editor/react": "^4.7.0",
     "ali-oss": "^6.23.0",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",

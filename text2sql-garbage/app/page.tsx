@@ -47,6 +47,7 @@ export default function Home() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [rerunning, setRerunning] = useState(false);
 
   const busyRef = useRef(false);
 
@@ -125,6 +126,61 @@ export default function Home() {
   const notify = useCallback((message: string) => {
     setToast({ key: Date.now(), text: message });
   }, []);
+
+  /** 结果面板「重新执行」：把编辑后的 SQL 交给 /api/execute（走校验但不过大模型） */
+  const handleRerun = useCallback(
+    async (sql: string) => {
+      const targetId = latestTurn?.id;
+      if (!targetId || !sql.trim() || rerunning) return;
+      setRerunning(true);
+      try {
+        const res = await fetch('/api/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sql }),
+        });
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          /* 响应体不是 JSON */
+        }
+
+        if (!res.ok || !data?.ok) {
+          const err = data?.error || `执行失败（${res.status}）`;
+          setTurns((prev) =>
+            prev.map((turn) =>
+              turn.id === targetId
+                ? {
+                    ...turn,
+                    result: {
+                      sql: typeof data?.sql === 'string' ? data.sql : sql,
+                      title: '自定义查询',
+                      summary: err,
+                      components: [{ type: 'markdown', data: { content: `⚠️ ${err}` } }],
+                    } as OutputConfig,
+                  }
+                : turn,
+            ),
+          );
+          notify(err);
+          return;
+        }
+
+        setTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === targetId ? { ...turn, result: data as OutputConfig } : turn,
+          ),
+        );
+        notify('已用修改后的 SQL 重新执行');
+      } catch {
+        notify('重新执行请求失败，请检查网络');
+      } finally {
+        setRerunning(false);
+      }
+    },
+    [latestTurn, rerunning, notify],
+  );
 
   const ask = useCallback(async (raw: string) => {
     const question = raw.trim();
@@ -268,6 +324,8 @@ export default function Home() {
             width={panelWidth}
             onWidthChange={handlePanelWidth}
             onDoubleClickResize={() => setPanelWidth(clampPanelWidth(DEFAULT_PANEL_WIDTH))}
+            onRerun={handleRerun}
+            rerunning={rerunning}
           />
         </div>
       </div>

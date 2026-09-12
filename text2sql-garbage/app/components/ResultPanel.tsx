@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { DataChart, formatCell } from './DataChart';
 import { getChartPoints, getChartUnit, getTable } from './derive';
+import { SqlEditor } from './SqlEditor';
 import {
   IconChart,
   IconChartBar,
@@ -13,6 +14,9 @@ import {
   IconCode,
   IconCopy,
   IconDownload,
+  IconFileSpreadsheet,
+  IconLoader,
+  IconRefresh,
   IconTable,
 } from './icons';
 import type {
@@ -52,6 +56,8 @@ export function ResultPanel({
   width,
   onWidthChange,
   onDoubleClickResize,
+  onRerun,
+  rerunning = false,
 }: {
   result: OutputConfig | null;
   loading: boolean;
@@ -63,6 +69,9 @@ export function ResultPanel({
   width: number;
   onWidthChange: (width: number) => void;
   onDoubleClickResize?: () => void;
+  /** 编辑 SQL 后重新执行（由父组件实现，调 /api/execute） */
+  onRerun?: (sql: string) => void | Promise<void>;
+  rerunning?: boolean;
 }) {
   const table = getTable(result);
   const points = getChartPoints(result);
@@ -71,6 +80,7 @@ export function ResultPanel({
 
   const [resizing, setResizing] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const copiedTimer = useRef<number | null>(null);
 
   // 图形形态：默认按数据量推断（点数多 → 折线，避免柱子挤成一团），
@@ -116,6 +126,55 @@ export function ResultPanel({
     const name = buildCsvFileName(result?.title ?? '查询结果');
     downloadCsv(table, name);
     onNotify(`已导出 ${table.rows.length} 行数据`);
+  };
+
+  /** 导出真实 .xlsx：服务端 exceljs 生成后以附件流式返回（不依赖 OSS） */
+  const handleExportExcel = async () => {
+    if (!table || !table.rows.length) {
+      onNotify('当前没有可导出的表格数据');
+      return;
+    }
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch('/api/export-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          columns: table.columns,
+          rows: table.rows,
+          title: result?.title ?? '查询结果',
+        }),
+      });
+      if (!res.ok) {
+        const info = await res.json().catch(() => null);
+        onNotify(`导出失败：${info?.error || res.status}`);
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+      const plain = /filename="?([^";]+)"?/i.exec(disposition);
+      const name = star
+        ? decodeURIComponent(star[1])
+        : plain
+          ? plain[1]
+          : `${result?.title || '查询结果'}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      onNotify(`已导出 ${table.rows.length} 行到 Excel`);
+    } catch {
+      onNotify('导出失败，请稍后重试');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const copyIcon = (key: string) =>
@@ -225,9 +284,21 @@ export function ResultPanel({
                         />
                         <GhostButton
                           icon={<IconDownload className="h-3.5 w-3.5" />}
-                          label="下载数据"
-                          title="导出为 CSV 文件"
+                          label="CSV"
+                          title="导出为 CSV 文件（前端生成）"
                           onClick={handleDownload}
+                        />
+                        <GhostButton
+                          icon={
+                            exporting ? (
+                              <IconLoader className="h-3.5 w-3.5 animate-rotate" />
+                            ) : (
+                              <IconFileSpreadsheet className="h-3.5 w-3.5" />
+                            )
+                          }
+                          label={exporting ? '导出中' : 'Excel'}
+                          title="导出为 .xlsx（服务端 exceljs 生成，无需 OSS）"
+                          onClick={handleExportExcel}
                         />
                       </div>
                     }
@@ -245,10 +316,12 @@ export function ResultPanel({
               )}
 
               {tab === 'sql' && (
-                <SqlSection
+                <SqlEditorTab
                   sql={result.sql}
                   copied={copiedKey === 'sql'}
                   onCopy={() => handleCopy(result.sql, 'sql', 'SQL 语句')}
+                  onRerun={onRerun}
+                  rerunning={rerunning}
                 />
               )}
 
@@ -269,9 +342,21 @@ export function ResultPanel({
                       />
                       <GhostButton
                         icon={<IconDownload className="h-3.5 w-3.5" />}
-                        label="下载数据"
-                        title="导出为 CSV 文件"
+                        label="CSV"
+                        title="导出为 CSV 文件（前端生成）"
                         onClick={handleDownload}
+                      />
+                      <GhostButton
+                        icon={
+                          exporting ? (
+                            <IconLoader className="h-3.5 w-3.5 animate-rotate" />
+                          ) : (
+                            <IconFileSpreadsheet className="h-3.5 w-3.5" />
+                          )
+                        }
+                        label={exporting ? '导出中' : 'Excel'}
+                        title="导出为 .xlsx（服务端 exceljs 生成，无需 OSS）"
+                        onClick={handleExportExcel}
                       />
                     </div>
                   }
@@ -507,6 +592,90 @@ function ChartTypeSwitch({
         );
       })}
     </div>
+  );
+}
+
+/** SQL 标签页：Monaco 可编辑 + 重新执行（编辑后的 SQL 走服务端校验后直接查库） */
+function SqlEditorTab({
+  sql,
+  copied,
+  onCopy,
+  onRerun,
+  rerunning,
+}: {
+  sql: string;
+  copied: boolean;
+  onCopy: () => void;
+  onRerun?: (sql: string) => void | Promise<void>;
+  rerunning: boolean;
+}) {
+  const [draft, setDraft] = useState(sql ?? '');
+
+  // 换了一轮回答（sql 变化）时同步编辑器内容
+  useEffect(() => {
+    setDraft(sql ?? '');
+  }, [sql]);
+
+  const trimmed = draft.trim();
+  const dirty = trimmed !== (sql ?? '').trim();
+  const canRun = Boolean(onRerun) && trimmed.length > 0 && !rerunning;
+
+  return (
+    <SectionCard
+      icon={<IconCode className="h-3.5 w-3.5" />}
+      title="SQL 语句"
+      meta={dirty ? '已修改' : undefined}
+      action={
+        <div className="flex items-center gap-1.5">
+          <GhostButton
+            icon={
+              copied ? (
+                <IconCheck className="h-3.5 w-3.5 text-mint-500" />
+              ) : (
+                <IconCopy className="h-3.5 w-3.5" />
+              )
+            }
+            label={copied ? '已复制' : '复制'}
+            title="复制 SQL 语句"
+            onClick={onCopy}
+          />
+          {onRerun && (
+            <button
+              type="button"
+              onClick={() => {
+                if (canRun) onRerun?.(draft);
+              }}
+              disabled={!canRun}
+              title="直接执行编辑后的 SQL（不再经过大模型）"
+              className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-[11.5px] whitespace-nowrap transition-colors ${
+                canRun
+                  ? 'border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100'
+                  : 'cursor-not-allowed border-line bg-canvas text-ink-300'
+              }`}
+            >
+              {rerunning ? (
+                <IconLoader className="h-3.5 w-3.5 animate-rotate" />
+              ) : (
+                <IconRefresh className="h-3.5 w-3.5" />
+              )}
+              {rerunning ? '执行中' : '重新执行'}
+            </button>
+          )}
+        </div>
+      }
+    >
+      {trimmed ? (
+        <>
+          <SqlEditor value={draft} onChange={setDraft} height={260} />
+          <p className="mt-2 text-[11.5px] leading-relaxed text-ink-400">
+            可直接编辑上面的 SQL，点「重新执行」会走服务端安全校验（表名白名单 / 强制 LIMIT）后查库，无需大模型。
+            {dirty && <span className="text-brand-600"> · 有未执行的修改</span>}
+          </p>
+        </>
+      ) : (
+        <p className="text-[12.5px] text-ink-400">本次回答未生成 SQL 语句</p>
+      )}
+    </SectionCard>
   );
 }
 

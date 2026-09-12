@@ -31,13 +31,13 @@
 | 需求 | 现状 | 状态 |
 |---|---|---|
 | FR1 自然语言转 SQL | 已实现，SSE 流式返回 | ✅ |
-| FR2 Schema 感知（TableSchemaTool） | **实质失效**，注入 prompt 的是一串散字符（见 P0-1） | ❌ |
-| FR3 语法 / 安全校验 | 仅 6 个关键词的 `includes` 匹配 | ⚠️ 不达标 |
-| FR4 执行与可视化 | 表格 + 自绘图表（柱/折/饼）+ Markdown 摘要 | ✅（`image` 类型缺） |
-| FR5 Excel 导出 + OSS | 仅前端 CSV 导出，无 exceljs / OSS | ❌ |
-| FR6 审计日志（Callback） | 无 | ❌ |
-| FR7 Monaco SQL 编辑器 | 只有只读高亮 + 复制 | ❌ |
-| 量化验收（可执行率 / 准确率 / 耗时） | **无任何实测数据** | ❌ |
+| FR2 Schema 感知（TableSchemaTool） | `lib/tools/table-schema-tool.ts` 关键词打分取 TopN（P1-1） | ✅ |
+| FR3 语法 / 安全校验 | `lib/validator.ts` 词法级黑/白名单 + 强制 LIMIT（P0-2） | ✅ |
+| FR4 执行与可视化 | 表格 + 自绘图表（柱/折/饼）+ Markdown 摘要 | ✅（`image` 类型仍缺） |
+| FR5 Excel 导出 | 本地 `exceljs` 生成 xlsx + 附件下载（P1-3，不依赖 OSS） | ✅ |
+| FR6 审计日志（Callback） | `lib/audit.ts` 落盘 `logs/audit-*.jsonl`（P1-2） | ✅ |
+| FR7 Monaco SQL 编辑器 | 可编辑 Monaco + 重新执行闭环（P1-4） | ✅ |
+| 量化验收（可执行率 / 准确率 / 耗时） | 评测脚本 + 报告；可执行率 100%、准确率 65.5%、P95 2.6s（P0-3/P1） | ⚠️ 准确率未达 90% |
 
 ---
 
@@ -129,8 +129,8 @@ node scripts/run-eval.mjs --concurrency=5  # 调并发，注意模型限流
 | 平均响应 | 2.0s | 1.9s | 达标 |
 | P95 响应 | 3.3s | **2.6s** | −0.7s（Top3 裁剪 prompt 生效） |
 
-已完成：P1-1 / P1-2 / P1-5 / P1-6 / P1-7（见各节）。
-延期（需额外决策/资源）：P1-3 Excel+OSS（需 OSS 凭证且未配置）、P1-4 Monaco（需装 `@monaco-editor/react` + 新增 `/api/execute` 编辑重跑闭环）。
+已完成：P1-1 ~ P1-7 全部落地（见各节）。
+其中 P1-3 由「OSS 预签名」调整为「本地 exceljs 生成 + 附件流式下载」（更轻、零外部凭证）；P1-4 已接入 `@monaco-editor/react` + `POST /api/execute`，形成「编辑 → 重跑」闭环。
 
 ## 版本控制（2026-09-12 建立）
 
@@ -156,16 +156,22 @@ node scripts/run-eval.mjs --concurrency=5  # 调并发，注意模型限流
   落盘 `logs/audit-YYYY-MM-DD.jsonl`。
 - 面试可讲"可观测性 / 全链路追踪"；排查线上问题时也是唯一依据。
 
-### P1-3 Excel 导出 + OSS 预签名（FR5）⏸ 延期（需 OSS 凭证）
+### P1-3 Excel 导出（FR5）✅ 已完成（本地 exceljs，不依赖 OSS）
 
-- `package.json` 已装 `exceljs`、`ali-oss`、`@aws-sdk/client-s3`，但代码里**一次都没用到**。
-- 方案：后端新增 `excel_download` 组件（exceljs 生成 xlsx → 上传 OSS → 返回 10 分钟预签名 URL）；
-  限 1 万行防 OOM；OSS 未配置时**降级**为直接流式下载，不阻断主流程。
+- 新增 `POST /api/export-excel`：接收前端表格数据 → `exceljs` 内存生成 xlsx →
+  以 `Content-Disposition: attachment` 流式返回浏览器下载；同时在 `downloads/`（已 gitignore）落一份本地副本。
+- 中文文件名用 RFC 5987 `filename*` 编码（UTF-8）+ ASCII 兜底；限 1 万行 / 60 列防 OOM；不走 OSS，无需任何云凭证。
+- 前端 `ResultPanel` 的「查询结果」与「数据表」两个页签各新增「Excel」按钮（与原有 CSV 导出并列）。
+- 说明：`ali-oss` / `@aws-sdk/*` 依赖保留但未启用，日后若需云端分发可平滑切回。
 
-### P1-4 Monaco SQL 编辑器（FR7）⏸ 延期（需装 @monaco-editor/react + 新增 /api/execute）
+### P1-4 Monaco SQL 编辑器（FR7）✅ 已完成
 
-- 现在只有只读 `<pre>` + 语法高亮。需求要的是"展示**并允许编辑**生成 SQL"。
-- 方案：接入 `@monaco-editor/react`，支持"编辑 SQL → 重新执行"闭环（新增 `POST /api/execute` 只跑 SQL 不走 LLM）。
+- 接入 `@monaco-editor/react`（`app/components/SqlEditor.tsx`，`next/dynamic` + `ssr:false` 客户端加载）；
+  「SQL 语句」页签由只读 `<pre>` 换成**可编辑** Monaco 编辑器（含语法高亮、行号）。
+- 新增 `POST /api/execute`：只跑 SQL、**不走大模型**，复用 `validateSQL`（表名白名单 / 强制 LIMIT）与
+  `lib/result-builder.ts` 构建表格 / 图表。
+- 前端「重新执行」按钮把编辑后的 SQL 提交并就地刷新结果面板；执行失败/被安全拦截时在面板内展示原因（toast 提示）。
+- 附带重构：把 `buildTableComponent` / `buildEchartsComponent` 抽到 `lib/result-builder.ts`，`/api/chat` 与 `/api/execute` 共用。
 
 ### P1-5 Few-Shot 从 1 例扩到 5 例 ✅ 已完成
 

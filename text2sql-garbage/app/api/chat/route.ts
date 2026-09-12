@@ -7,6 +7,7 @@ import { NextRequest } from 'next/server';
 import { TableSchemaTool } from '@/lib/tools/table-schema-tool';
 import { AuditCallbackHandler } from '@/lib/audit';
 import z from 'zod';
+import { buildResultComponents } from '@/lib/result-builder';
 
 // 后端返回给前端的完整结果结构（与前端 types.ts 中的 OutputConfig 对齐）
 type ComponentType = 'markdown' | 'image' | 'table' | 'echarts' | 'excel_download';
@@ -172,56 +173,6 @@ async function buildMessages(userQuestion: string, tableInfo: string) {
   ];
 }
 
-/* ────────────── 从 DB 查询结果构建 table / echarts 组件 ────────────── */
-
-function isNumericColumn(rows: Record<string, any>[], field: string): boolean {
-  let hits = 0;
-  let total = 0;
-  for (const row of rows.slice(0, 40)) {
-    const raw = row[field];
-    if (raw === null || raw === undefined || raw === '') continue;
-    total += 1;
-    const v = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseFloat(raw) : NaN;
-    if (Number.isFinite(v)) hits += 1;
-  }
-  return total > 0 && hits / total >= 0.8;
-}
-
-function buildTableComponent(dbResult: { rows: any[]; fields: { name: string }[] }) {
-  if (!dbResult?.rows?.length || !dbResult.fields?.length) return null;
-  const columns = dbResult.fields.map((f) => ({ field: f.name, label: f.name }));
-  const rows = dbResult.rows.map((row) => {
-    const obj: Record<string, any> = {};
-    for (const col of columns) obj[col.field] = row[col.field] ?? null;
-    return obj;
-  });
-  return { type: 'table' as const, data: { columns, rows } };
-}
-
-function buildEchartsComponent(dbResult: { rows: any[]; fields: { name: string }[] }) {
-  if (!dbResult?.rows?.length || !dbResult.fields?.length) return null;
-  const rows = dbResult.rows.map((row) => {
-    const obj: Record<string, any> = {};
-    for (const f of dbResult.fields) obj[f.name] = row[f.name];
-    return obj;
-  });
-  const fieldNames = dbResult.fields.map((f) => f.name);
-  const numericFields = fieldNames.filter((f) => isNumericColumn(rows, f));
-  if (!numericFields.length) return null;
-  const labelField = fieldNames.find((f) => !numericFields.includes(f)) ?? fieldNames[0];
-  const valueField = numericFields[0];
-  const xAxisData = rows.map((r) => String(r[labelField] ?? ''));
-  const seriesData = rows.map((r) => {
-    const v = r[valueField];
-    return typeof v === 'number' ? v : parseFloat(String(v)) || 0;
-  });
-  if (xAxisData.length < 2) return null;
-  return {
-    type: 'echarts' as const,
-    data: { chartType: 'bar', title: '查询结果图表', xAxisData, series: [{ name: valueField, data: seriesData }] },
-  };
-}
-
 /* ────────────── 主入口 ────────────── */
 
 const tableSchemaTool = new TableSchemaTool();
@@ -385,12 +336,9 @@ export async function POST(req: NextRequest) {
         let finalComponents: OutputComponent[] = [];
 
         if (dbResult && dbResult.rows.length > 0) {
-          const tableComp = buildTableComponent(dbResult);
-          const echartsComp = buildEchartsComponent(dbResult);
           const mdComp = llmComponents.find((c) => c.type === 'markdown');
           if (mdComp) finalComponents.push(mdComp);
-          if (tableComp) finalComponents.push(tableComp);
-          if (echartsComp) finalComponents.push(echartsComp);
+          finalComponents.push(...buildResultComponents(dbResult));
         } else {
           finalComponents = [...llmComponents];
           if (queryError)

@@ -111,6 +111,14 @@ export const IconDownload = (p: P) => (
   </S>
 );
 
+export const IconFileSpreadsheet = (p: P) => (
+  <S {...p}>
+    <path d="M14 3.5H7.5A2.5 2.5 0 0 0 5 6v12a2.5 2.5 0 0 0 2.5 2.5h9A2.5 2.5 0 0 0 19 18V8.5L14 3.5z" />
+    <path d="M14 3.5V8.5H19" />
+    <path d="M8.5 12.4h7M8.5 15.4h7M11.5 12.4v5" />
+  </S>
+);
+
 export const IconRefresh = (p: P) => (
   <S {...p}>
     <path d="M20 11.5A8 8 0 0 0 6.2 6.6L4 8.8" />

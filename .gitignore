@@ -14,6 +14,9 @@ out/
 # ── 运行时日志（审计日志为运行产物，可重建）──
 logs/
 
+# ── Excel 导出本地留存（FR5：exceljs 生成后服务端落盘一份，可重建）──
+downloads/
+
 # ── 杂项 ──
 npm-debug.log*
 *.log
