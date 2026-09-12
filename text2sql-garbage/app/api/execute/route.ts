@@ -7,6 +7,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { validateSQL } from '@/lib/validator';
 import { buildResultComponents } from '@/lib/result-builder';
+import { classifyError } from '@/lib/error-hints';
 
 export const runtime = 'nodejs';
 
@@ -26,7 +27,18 @@ export async function POST(req: NextRequest) {
   // 1) 复用同一套安全校验：改写后的 SQL 同样不能越权
   const validated = validateSQL(rawSql);
   if (!validated.valid) {
-    return Response.json({ ok: false, sql: rawSql, error: validated.error }, { status: 400 });
+    // P2-3：返回统一分级错误，前端直接展示中文类别 + 建议
+    const hint = classifyError(validated.error || '安全校验不通过');
+    return Response.json(
+      {
+        ok: false,
+        sql: rawSql,
+        error: `${hint.label}：${hint.message}`,
+        suggestion: hint.suggestion,
+        category: hint.category,
+      },
+      { status: 400 },
+    );
   }
   const sql = validated.sql!;
 
@@ -48,6 +60,15 @@ export async function POST(req: NextRequest) {
       components,
     });
   } catch (err: any) {
-    return Response.json({ ok: false, sql, error: err?.message || String(err) });
+    const raw = err?.message || String(err);
+    const hint = classifyError(raw);
+    return Response.json({
+      ok: false,
+      sql,
+      error: `${hint.label}：${hint.message}`,
+      suggestion: hint.suggestion,
+      category: hint.category,
+      detail: raw,
+    });
   }
 }

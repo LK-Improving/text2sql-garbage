@@ -12,7 +12,8 @@ import {
 import { Sidebar } from './components/Sidebar';
 import { Toast } from './components/Toast';
 import { TopBar } from './components/TopBar';
-import type { OutputConfig, ResultTab, Turn } from './components/types';
+import { classifyError } from '@/lib/error-hints';
+import type { ChatMessage, OutputConfig, ResultTab, Turn } from './components/types';
 
 const FALLBACK_ERROR = '请求失败，请检查网络或稍后重试。';
 
@@ -50,6 +51,8 @@ export default function Home() {
   const [rerunning, setRerunning] = useState(false);
 
   const busyRef = useRef(false);
+  /** turns 的镜像：ask 的 useCallback 依赖为空，直接读 turns 会拿到旧值，用 ref 规避陈旧闭包 */
+  const turnsRef = useRef<Turn[]>([]);
 
   /** 面板宽度收敛到 [MIN, MAX]，并保证对话区不会被挤没 */
   const clampPanelWidth = useCallback((value: number) => {
@@ -88,6 +91,11 @@ export default function Home() {
 
   const loading = turns.some((turn) => turn.status === 'streaming');
   const latestTurn = turns.length ? turns[turns.length - 1] : null;
+
+  // 同步 turns 到 ref（供 ask 构造多轮上下文）
+  useEffect(() => {
+    turnsRef.current = turns;
+  }, [turns]);
 
   const historyItems = useMemo(
     () => [...turns].reverse().map((turn) => ({ id: turn.id, question: turn.question })),
@@ -147,7 +155,8 @@ export default function Home() {
         }
 
         if (!res.ok || !data?.ok) {
-          const err = data?.error || `执行失败（${res.status}）`;
+          const hint = classifyError(data?.error || `执行失败（${res.status}）`);
+          const err = data?.error || `${hint.label}：${hint.message}`;
           setTurns((prev) =>
             prev.map((turn) =>
               turn.id === targetId
@@ -156,8 +165,15 @@ export default function Home() {
                     result: {
                       sql: typeof data?.sql === 'string' ? data.sql : sql,
                       title: '自定义查询',
-                      summary: err,
-                      components: [{ type: 'markdown', data: { content: `⚠️ ${err}` } }],
+                      summary: `${err}\n\n> ${data?.suggestion || hint.suggestion}`,
+                      components: [
+                        {
+                          type: 'markdown',
+                          data: {
+                            content: `**⚠️ ${hint.label}**：${hint.message}\n\n> ${data?.suggestion || hint.suggestion}`,
+                          },
+                        },
+                      ],
                     } as OutputConfig,
                   }
                 : turn,
@@ -207,11 +223,23 @@ export default function Home() {
     const patch = (updater: (turn: Turn) => Turn) =>
       setTurns((prev) => prev.map((turn) => (turn.id === id ? updater(turn) : turn)));
 
+    // P2-2：带上最近 2 轮（问题 + 结论摘要）作为多轮上下文，让「那上个月呢」这类指代能被解析。
+    const history: ChatMessage[] = turnsRef.current
+      .slice(-2)
+      .flatMap((turn) => {
+        const msgs: ChatMessage[] = [{ role: 'user', content: turn.question }];
+        const answer = turn.result?.summary?.trim();
+        if (answer) msgs.push({ role: 'assistant', content: answer.slice(0, 300) });
+        return msgs;
+      });
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [{ role: 'user', content: question }] }),
+        body: JSON.stringify({
+          messages: [...history, { role: 'user', content: question }],
+        }),
       });
 
       if (!response.ok) throw new Error(`服务返回 ${response.status}`);

@@ -1,10 +1,18 @@
 // 共享类型定义
 
-export type ComponentType = 'markdown' | 'table' | 'echarts' | 'excel_download';
+export type ComponentType = 'markdown' | 'image' | 'table' | 'echarts' | 'excel_download';
 
 export type OutputComponent = {
   type: ComponentType;
   data: any;
+};
+
+/** 响应遥测（P2-1）：命中缓存 / 首 token 耗时 / 总耗时 */
+export type Telemetry = {
+  cacheHit: boolean;
+  ttftMs?: number;
+  llmMs?: number;
+  totalMs?: number;
 };
 
 /** 后端 /api/chat 最终返回的结果结构 */
@@ -13,7 +21,11 @@ export type OutputConfig = {
   title: string;
   summary: string;
   components: OutputComponent[];
+  telemetry?: Telemetry;
 };
+
+/** 一轮对话（P2-2 多轮上下文用，随请求上传给后端） */
+export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 /** 一轮问答 */
 export type Turn = {

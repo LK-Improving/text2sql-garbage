@@ -29,6 +29,15 @@ type AuditRecord = {
   dbError?: string;
   status?: string;
   llmTokens?: { prompt?: number; completion?: number; total?: number };
+  /** 首 token 耗时（ms）：从进入 POST 到收到第一个流式片段，性能面板关注的 TTFT */
+  ttftMs?: number;
+  /** LLM 阶段总耗时（ms） */
+  llmMs?: number;
+  /** 整条链路耗时（ms），flush 时结算 */
+  totalMs?: number;
+  /** 是否命中 SQL 生成缓存（命中则跳过 LLM） */
+  cacheHit?: boolean;
+  cacheKey?: string;
   latencyMs?: number;
   error?: string;
 };
@@ -38,9 +47,11 @@ export class AuditCallbackHandler extends BaseCallbackHandler {
 
   private record: AuditRecord;
   private logDir = path.resolve(process.cwd(), 'logs');
+  private startedAtMs = Date.now();
 
   constructor(question: string) {
     super();
+    this.startedAtMs = Date.now();
     this.record = {
       question,
       startedAt: new Date().toISOString(),
@@ -102,9 +113,40 @@ export class AuditCallbackHandler extends BaseCallbackHandler {
     this.record.error = message;
   }
 
+  /* ── 性能埋点（P2-1） ── */
+
+  /** 收到首 token 时调用，只记第一次 */
+  markFirstToken(): void {
+    if (this.record.ttftMs === undefined) {
+      this.record.ttftMs = Date.now() - this.startedAtMs;
+    }
+  }
+
+  /** LLM 阶段结束（拿到完整输出）时调用 */
+  markLlmDone(): void {
+    this.record.llmMs = Date.now() - this.startedAtMs;
+  }
+
+  /** 标记缓存命中情况 */
+  setCacheHit(hit: boolean, key?: string): void {
+    this.record.cacheHit = hit;
+    this.record.cacheKey = key;
+  }
+
+  /** 返回当前耗时快照，供响应遥测（totalMs 实时计算，无需等 flush） */
+  timing(): { ttftMs?: number; llmMs?: number; totalMs: number; cacheHit: boolean } {
+    return {
+      ttftMs: this.record.ttftMs,
+      llmMs: this.record.llmMs,
+      totalMs: Date.now() - this.startedAtMs,
+      cacheHit: Boolean(this.record.cacheHit),
+    };
+  }
+
   /** 落盘单条 JSONL 审计记录 */
   async flush(): Promise<void> {
     this.record.finishedAt = new Date().toISOString();
+    this.record.totalMs = Date.now() - this.startedAtMs;
     try {
       fs.mkdirSync(this.logDir, { recursive: true });
       const file = path.join(this.logDir, `audit-${new Date().toISOString().slice(0, 10)}.jsonl`);

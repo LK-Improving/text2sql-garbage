@@ -26,6 +26,33 @@ export function getTable(result: OutputConfig | null | undefined): TableData | n
   return null;
 }
 
+/** 收集 image 组件（FR4 契约里 image 类型，之前只声明未渲染） */
+export function getImages(
+  result: OutputConfig | null | undefined,
+): { src: string; alt: string }[] {
+  if (!result?.components?.length) return [];
+  const images: { src: string; alt: string }[] = [];
+  for (const comp of result.components) {
+    if (comp?.type !== 'image') continue;
+    const data = comp?.data;
+    const src =
+      typeof data === 'string'
+        ? data
+        : typeof data?.url === 'string'
+          ? data.url
+          : typeof data?.src === 'string'
+            ? data.src
+            : typeof data?.content === 'string'
+              ? data.content
+              : '';
+    if (!src) continue;
+    const alt =
+      typeof data?.alt === 'string' ? data.alt : typeof data?.title === 'string' ? data.title : '结果图片';
+    images.push({ src, alt });
+  }
+  return images;
+}
+
 /** 汇总所有 markdown 组件的内容（作为分析结论） */
 export function getMarkdown(result: OutputConfig | null | undefined): string {
   if (!result?.components?.length) return '';

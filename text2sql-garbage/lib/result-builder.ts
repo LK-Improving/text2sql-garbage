@@ -4,6 +4,7 @@
 // 避免两套实现漂移（之前只在 route.ts 里有一份，/api/execute 若再抄一份迟早对不齐）。
 
 import type { OutputComponent } from '@/app/components/types';
+import { humanizeField } from './field-labels';
 
 export type DbResult = { rows: any[]; fields: { name: string }[] };
 
@@ -23,7 +24,9 @@ export function isNumericColumn(rows: Record<string, any>[], field: string): boo
 
 export function buildTableComponent(dbResult: DbResult): OutputComponent | null {
   if (!dbResult?.rows?.length || !dbResult.fields?.length) return null;
-  const columns = dbResult.fields.map((f) => ({ field: f.name, label: f.name }));
+  // label 走中文化：字段名 → 业务名（如 total_weight → 总清运量(kg)），
+  // 表格表头、CSV、Excel 三处导出的表头都从这里取，改一处即全生效。
+  const columns = dbResult.fields.map((f) => ({ field: f.name, label: humanizeField(f.name) }));
   const rows = dbResult.rows.map((row) => {
     const obj: Record<string, any> = {};
     for (const col of columns) obj[col.field] = row[col.field] ?? null;
@@ -50,13 +53,14 @@ export function buildEchartsComponent(dbResult: DbResult): OutputComponent | nul
     return typeof v === 'number' ? v : parseFloat(String(v)) || 0;
   });
   if (xAxisData.length < 2) return null;
+  const valueLabel = humanizeField(valueField);
   return {
     type: 'echarts',
     data: {
       chartType: 'bar',
-      title: '查询结果图表',
+      title: `${valueLabel} 对比`,
       xAxisData,
-      series: [{ name: valueField, data: seriesData }],
+      series: [{ name: valueLabel, data: seriesData }],
     },
   };
 }

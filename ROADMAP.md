@@ -196,35 +196,43 @@ node scripts/run-eval.mjs --concurrency=5  # 调并发，注意模型限流
 
 ---
 
-## P2 · 体验、性能与工程
+## P2 · 体验、性能与工程 ✅ 已完成（2026-09-12/13）
 
-### P2-1 响应耗时（距 <5s 目标差距最大）
+| 子项 | 交付物 | 状态 |
+|---|---|---|
+| P2-1 性能 | `lib/sql-cache.ts`（进程内 LRU + TTL 默认 10min，env 开关 `SQL_CACHE_ENABLED`/`SQL_CACHE_TTL_MS`）；`lib/audit.ts` 增加 TTFT / LLM 耗时 / 总耗时埋点；缓存 key = `normalizeQuestion(问题) + hash(历史签名)`，命中即跳过 LLM 但重新查库（数据实时） | ✅ |
+| P2-2 多轮 | 前端 `ask` 回传最近 2 轮（问题 + summary 摘要 ≤300 字）；后端 `buildMessages` 夹历史、`TableSchemaTool` 用「近 2 问 + 当前问」检索、`SYSTEM_TEMPLATE` 加 rule 7 显式要求解析指代 | ✅ |
+| P2-3 体验 | 表格列排序 + 分页（`PAGE_SIZES=[10,20,50]`）；CSV/Excel 表头中文化（`lib/field-labels.ts`）；图表导出 PNG / 复制图片（SVG→2x canvas 栅格化）；错误分级（`lib/error-hints.ts` 7 类）；补 FR4 `image` 组件渲染；安全拒绝统一走优雅 `result`（不再抛 `error` 事件） | ✅ |
+| P2-4 工程 | vitest ^5 单测（6 文件 41 例全绿，`pnpm test`）；README 重写为作品集向；`pnpm eval` 脚本化回归；`.env.example` 规范化 | ✅ |
 
-- 实测单次问答约 20~40s，瓶颈在 LLM 生成（`deepseek-flash`）。可做的：
-  - Schema Top3 裁剪 + prompt 瘦身（P1-1 顺带）；
-  - 首 token 时间（TTFT）单独埋点，与总耗时分开考核；
-  - 热点问题结果缓存（相同问题直接回放，需处理时间敏感查询的失效）；
-  - 评估更快的模型 / 开启推理加速，并在评测报告里对比不同模型的准确率-耗时曲线。
+### P2-1 响应耗时
+
+- Schema Top3 裁剪 + prompt 瘦身（P1-1 顺带）已生效，P95 从 3.3s → 2.6s；
+- 新增 **SQL 生成计划缓存**（`lib/sql-cache.ts`）：同源同问二次进入 `cacheHit=true`，跳过最慢的 LLM 调用；
+- `lib/audit.ts` 单独埋 **TTFT / LLM 耗时 / 总耗时**，与 `telemetry` 一并回传前端徽标展示；
+- 缓存只存「问题 → SQL 计划」，命中后仍走 `validateSQL + 真实查库`，时间敏感查询不返回陈旧数据。
 
 ### P2-2 多轮对话与歧义澄清
 
-- 现在 `messages` 只取最后一条，历史轮次被丢弃，前端也没传上下文。
-- 先做「接着上次问」（注入最近 1~2 轮），再考虑主动追问补全维度（需求 P2 阶段项）。
+- 前端 `ask` 构造最近 2 轮（用户问题 + 助手摘要）随 `messages` 上传；后端除末条外均视为历史；
+- `buildMessages` 把最近 4 条历史夹在 few-shot 与当前问题之间；`TableSchemaTool` 检索用「近 2 问 + 当前问」，
+  指代型追问（「那上个月呢」「换成滨江区」）也能命中正确表并补全语义；
+- 验证：先问「查各区域本月清运量排行」→ 再问「那上个月呢」→ 标题正确变为「各区域上个月清运量排行」、SQL 含 `date_trunc('month', CURRENT_DATE) - INTERVAL '1 month'`。
 
 ### P2-3 前端打磨
 
-- 图表导出 PNG / 复制图表；
-- 表格列排序、分页（当前超 40 行只截断）；
-- CSV 表头中文化（字段名 → 业务名，从 schema 的 `description` 取，如 `total_weight` → 总清运量(kg)）；
-- 错误分级提示：区分"字段不存在 / 语法错误 / 权限拦截 / 超时"，并给出改写建议。
+- 表格：点表头 **升/降/还原** 排序 + 分页（10/20/50），换结果自动重置；
+- 表头中文化：`lib/field-labels.ts` 映射 `total_weight_kg → 总清运量(kg)`、`region_name → 区域`、`plate_number → 车牌号` 等，聚合前缀 `sum_/count_/avg_/max_/min_` 识别、单位后缀抽成 `字段(单位)`；
+- 图表：新增「PNG」「复制图」按钮，SVG → 2x 白底 canvas 栅格化导出/复制；
+- 错误分级：`lib/error-hints.ts` 把 pg / 校验器原始报错归为 `syntax|field|table|permission|timeout|connection|unknown` 七类，给出「类别 + 说明 + 可操作建议」；
+- 安全拒绝路径收口：validator 拦截（写操作 / 非白名单表 / 多语句）现在与「LLM 主动返回空 SQL」一致，
+  **统一返回优雅 `result` 事件**（中文说明 + `[DONE]` 收尾），不再抛 `error` 事件弹红框；
+- 补 FR4 `image` 组件渲染（`derive.ts` 的 `getImages` + `ResultPanel` 的 images 区）。
 
 ### P2-4 工程质量
 
-- **README 仍是脚手架默认内容** —— 作品集项目必须重写：架构图、技术亮点、指标数据、截图、本地启动说明；
-- `.env.explame` 拼写错误 → 改为 `.env.example`；
-- **`API_KEY` 明文写在 `.env`**：虽已 gitignore，但建议轮换一次，并检查 git 历史里是否曾提交过；
-- 补最小单测（`validator` 的词法校验、`derive` 的图表推断都是纯函数，vitest 易覆盖）；
-- 引入 `npm run eval` 作为提交前回归（配合 P0-3）。
+- README 重写为作品集向（架构图、技术亮点表、评测口径、快速开始、工程能力、安全防护）；
+- `pnpm test`（vitest 41 例）、`pnpm typecheck`（tsc --noEmit）、`pnpm eval`（run-eval.mjs）三件套齐备，提交前可一键回归。
 
 ---
 

@@ -119,6 +119,14 @@ export const IconFileSpreadsheet = (p: P) => (
   </S>
 );
 
+export const IconImage = (p: P) => (
+  <S {...p}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <circle cx="8.6" cy="9.6" r="1.6" />
+    <path d="M4.2 17.4 9.6 12l3.4 3.2 3-2.6 4.2 4.2" />
+  </S>
+);
+
 export const IconRefresh = (p: P) => (
   <S {...p}>
     <path d="M20 11.5A8 8 0 0 0 6.2 6.6L4 8.8" />

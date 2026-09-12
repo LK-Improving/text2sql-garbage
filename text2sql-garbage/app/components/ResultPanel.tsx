@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { DataChart, formatCell } from './DataChart';
-import { getChartPoints, getChartUnit, getTable } from './derive';
+import { getChartPoints, getChartUnit, getImages, getTable } from './derive';
 import { SqlEditor } from './SqlEditor';
 import {
   IconChart,
@@ -10,16 +10,21 @@ import {
   IconChartLine,
   IconChartPie,
   IconCheck,
+  IconChevronDown,
+  IconChevronUp,
   IconClose,
   IconCode,
   IconCopy,
   IconDownload,
   IconFileSpreadsheet,
+  IconImage,
   IconLoader,
   IconRefresh,
+  IconSpark,
   IconTable,
 } from './icons';
 import type {
+  ChartPoint,
   ChartType,
   NotifyHandler,
   OutputConfig,
@@ -76,6 +81,7 @@ export function ResultPanel({
   const table = getTable(result);
   const points = getChartPoints(result);
   const unit = getChartUnit(result);
+  const images = getImages(result);
   const rowCount = table?.rows.length ?? 0;
 
   const [resizing, setResizing] = useState(false);
@@ -256,6 +262,7 @@ export function ResultPanel({
             <PanelEmpty />
           ) : (
             <div className="animate-fade space-y-3.5">
+              {result.telemetry && <TelemetryBadge telemetry={result.telemetry} />}
               {tab === 'overview' && (
                 <>
                   <SqlSection
@@ -305,13 +312,33 @@ export function ResultPanel({
                   >
                     <ResultTable table={table} limit={8} />
                   </SectionCard>
-                  <SectionCard
-                    icon={<IconChart className="h-3.5 w-3.5" />}
+                  <ChartSection
+                    points={points}
+                    unit={unit}
+                    type={chartType}
+                    onTypeChange={selectChartType}
+                    height={228}
                     title="图表展示"
-                    action={<ChartTypeSwitch value={chartType} onChange={selectChartType} />}
-                  >
-                    <DataChart points={points} unit={unit} height={228} type={chartType} />
-                  </SectionCard>
+                    onNotify={onNotify}
+                  />
+                  {images.length > 0 && (
+                    <SectionCard
+                      icon={<IconImage className="h-3.5 w-3.5" />}
+                      title="图片"
+                    >
+                      <div className="space-y-2">
+                        {images.map((img, i) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={i}
+                            src={img.src}
+                            alt={img.alt}
+                            className="w-full rounded-lg border border-line"
+                          />
+                        ))}
+                      </div>
+                    </SectionCard>
+                  )}
                 </>
               )}
 
@@ -366,13 +393,15 @@ export function ResultPanel({
               )}
 
               {tab === 'chart' && (
-                <SectionCard
-                  icon={<IconChart className="h-3.5 w-3.5" />}
+                <ChartSection
+                  points={points}
+                  unit={unit}
+                  type={chartType}
+                  onTypeChange={selectChartType}
+                  height={268}
                   title="图表分析"
-                  action={<ChartTypeSwitch value={chartType} onChange={selectChartType} />}
-                >
-                  <DataChart points={points} unit={unit} height={268} type={chartType} />
-                </SectionCard>
+                  onNotify={onNotify}
+                />
               )}
             </div>
           )}
@@ -739,8 +768,72 @@ function SqlSection({
   );
 }
 
+type SortState = { field: string; dir: 'asc' | 'desc' } | null;
+
+const PAGE_SIZES = [10, 20, 50];
+
+/** 排序用的取值：数值列转 number，其余转 string；空值返回 null（排最后） */
+function sortValueOf(value: unknown, numeric: boolean): number | string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (!numeric) return String(value);
+  const n =
+    typeof value === 'number' ? value : Number(String(value).replace(/[,，\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 数据表：预览模式（传 limit）只展示前 N 行；
+ * 完整模式（不传 limit）支持**点表头排序 + 分页**，替代之前「超 40 行直接截断」的粗糙做法。
+ */
 function ResultTable({ table, limit }: { table: TableData | null; limit?: number }) {
-  if (!table || !table.columns.length) {
+  const [sort, setSort] = useState<SortState>(null);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+
+  const columns = table?.columns ?? [];
+  const rows = table?.rows ?? [];
+
+  const numericFields = useMemo(
+    () =>
+      columns
+        .filter((col) => {
+          const sample = rows
+            .slice(0, 30)
+            .filter((r) => r[col.field] !== null && r[col.field] !== undefined);
+          if (!sample.length) return false;
+          const hits = sample.filter((r) => {
+            const v = r[col.field];
+            if (typeof v === 'number') return Number.isFinite(v);
+            return typeof v === 'string' && /^-?[\d,]+(\.\d+)?$/.test(v.trim());
+          }).length;
+          return hits / sample.length >= 0.8;
+        })
+        .map((col) => col.field),
+    [columns, rows],
+  );
+
+  // 换了一份结果就重置排序与翻页
+  useEffect(() => {
+    setSort(null);
+    setPage(0);
+  }, [table]);
+
+  const sorted = useMemo(() => {
+    if (!sort) return rows;
+    const numeric = numericFields.includes(sort.field);
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av = sortValueOf(a[sort.field], numeric);
+      const bv = sortValueOf(b[sort.field], numeric);
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), 'zh-CN') * dir;
+    });
+  }, [rows, sort, numericFields]);
+
+  if (!table || !columns.length) {
     return (
       <div className="flex h-28 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line bg-canvas-soft">
         <span className="text-[12.5px] text-ink-400">本次回答没有表格数据</span>
@@ -748,67 +841,328 @@ function ResultTable({ table, limit }: { table: TableData | null; limit?: number
     );
   }
 
-  const rows = typeof limit === 'number' ? table.rows.slice(0, limit) : table.rows;
-  const numericFields = table.columns
-    .filter((col) => {
-      const sample = table.rows.slice(0, 30).filter((r) => r[col.field] !== null && r[col.field] !== undefined);
-      if (!sample.length) return false;
-      const hits = sample.filter((r) => {
-        const v = r[col.field];
-        if (typeof v === 'number') return Number.isFinite(v);
-        return typeof v === 'string' && /^-?[\d,]+(\.\d+)?$/.test(v.trim());
-      }).length;
-      return hits / sample.length >= 0.8;
-    })
-    .map((col) => col.field);
+  const preview = typeof limit === 'number';
+  const pageCount = preview ? 1 : Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const displayRows = preview
+    ? sorted.slice(0, limit)
+    : sorted.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
+  const toggleSort = (field: string) => {
+    setSort((prev) => {
+      if (!prev || prev.field !== field) return { field, dir: 'asc' };
+      if (prev.dir === 'asc') return { field, dir: 'desc' };
+      return null; // 第三次点击恢复原始顺序
+    });
+    setPage(0);
+  };
 
   return (
-    <div className="scroll-thin overflow-x-auto rounded-lg border border-line">
-      <table className="w-full border-collapse text-[12.5px]">
-        <thead>
-          <tr className="bg-canvas">
-            {table.columns.map((col) => (
-              <th
-                key={col.field}
-                className={`sticky top-0 border-b border-line px-2.5 py-2 font-semibold whitespace-nowrap text-ink-600 ${
-                  numericFields.includes(col.field) ? 'text-right' : 'text-left'
-                }`}
-              >
-                {col.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="transition-colors even:bg-canvas-soft hover:bg-brand-50/60">
-              {table.columns.map((col) => {
+    <div className="overflow-hidden rounded-lg border border-line">
+      <div className="scroll-thin overflow-x-auto">
+        <table className="w-full border-collapse text-[12.5px]">
+          <thead>
+            <tr className="bg-canvas">
+              {columns.map((col) => {
                 const isNum = numericFields.includes(col.field);
+                const active = sort?.field === col.field;
                 return (
-                  <td
+                  <th
                     key={col.field}
-                    className={`border-b border-line px-2.5 py-1.5 whitespace-nowrap ${
-                      isNum
-                        ? 'text-right font-mono text-ink-800 tabular-nums'
-                        : 'text-left text-ink-700'
+                    className={`sticky top-0 border-b border-line px-2.5 py-2 font-semibold whitespace-nowrap text-ink-600 ${
+                      isNum ? 'text-right' : 'text-left'
                     }`}
                   >
-                    {formatCell(row[col.field])}
-                  </td>
+                    {preview ? (
+                      col.label
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(col.field)}
+                        title="点击排序（升序 / 降序 / 还原）"
+                        className={`inline-flex w-full items-center gap-0.5 hover:text-brand-600 ${
+                          isNum ? 'flex-row-reverse justify-start' : 'justify-start'
+                        }`}
+                      >
+                        <span className="truncate">{col.label}</span>
+                        <span className={active ? 'text-brand-500' : 'text-ink-300'}>
+                          {active && sort?.dir === 'asc' ? (
+                            <IconChevronUp className="h-3 w-3" />
+                          ) : (
+                            <IconChevronDown className="h-3 w-3" />
+                          )}
+                        </span>
+                      </button>
+                    )}
+                  </th>
                 );
               })}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {displayRows.map((row, i) => (
+              <tr key={i} className="transition-colors even:bg-canvas-soft hover:bg-brand-50/60">
+                {columns.map((col) => {
+                  const isNum = numericFields.includes(col.field);
+                  return (
+                    <td
+                      key={col.field}
+                      className={`border-b border-line px-2.5 py-1.5 whitespace-nowrap ${
+                        isNum
+                          ? 'text-right font-mono text-ink-800 tabular-nums'
+                          : 'text-left text-ink-700'
+                      }`}
+                    >
+                      {formatCell(row[col.field])}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      {typeof limit === 'number' && table.rows.length > limit && (
+      {preview && sorted.length > limit && (
         <div className="border-t border-line bg-canvas-soft px-2.5 py-1.5 text-center text-[11.5px] text-ink-400">
-          共 {table.rows.length} 条，仅展示前 {limit} 条 · 切换到「数据表」查看全部
+          共 {sorted.length} 条，仅展示前 {limit} 条 · 切换到「数据表」查看全部
+        </div>
+      )}
+
+      {!preview && sorted.length > PAGE_SIZES[0] && (
+        <div className="flex items-center gap-2 border-t border-line bg-canvas-soft px-2.5 py-1.5 text-[11.5px] text-ink-500">
+          <span className="tabular-nums">
+            共 {sorted.length} 条 · 第 {safePage + 1}/{pageCount} 页
+          </span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(0);
+            }}
+            className="ml-auto rounded-md border border-line bg-surface px-1.5 py-0.5 text-[11.5px] text-ink-600"
+            title="每页条数"
+          >
+            {PAGE_SIZES.map((size) => (
+              <option key={size} value={size}>
+                {size} 条/页
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={safePage <= 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              className="rounded-md border border-line bg-surface px-1.5 py-0.5 disabled:opacity-40 enabled:hover:border-brand-200 enabled:hover:text-brand-700"
+            >
+              上一页
+            </button>
+            <button
+              type="button"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              className="rounded-md border border-line bg-surface px-1.5 py-0.5 disabled:opacity-40 enabled:hover:border-brand-200 enabled:hover:text-brand-700"
+            >
+              下一页
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+/* ─────────────────────── P2-1 遥测 / P2-3 图表导出 ─────────────────────── */
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** 响应遥测徽标：命中缓存 / 首 token 耗时 / 总耗时 */
+function TelemetryBadge({ telemetry }: { telemetry: NonNullable<OutputConfig['telemetry']> }) {
+  const secs = (ms?: number) => (typeof ms === 'number' ? `${(ms / 1000).toFixed(2)}s` : null);
+  const parts: string[] = [];
+  if (telemetry.cacheHit) parts.push('命中 SQL 缓存 · 已跳过模型');
+  else if (secs(telemetry.ttftMs)) parts.push(`首字 ${secs(telemetry.ttftMs)}`);
+  const total = secs(telemetry.totalMs);
+  if (total) parts.push(`总耗时 ${total}`);
+  if (!parts.length) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11.5px] text-ink-500">
+      <IconSpark className="h-3.5 w-3.5 text-brand-500" />
+      <span className="truncate">{parts.join(' · ')}</span>
+      {telemetry.cacheHit && (
+        <span className="ml-auto shrink-0 rounded-full bg-brand-50 px-1.5 py-0.5 text-[10.5px] font-medium text-brand-700">
+          缓存
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** 图表卡片：内置「导出 PNG / 复制图片」，把页面上的自绘 SVG 栅格化成位图 */
+function ChartSection({
+  points,
+  unit,
+  type,
+  onTypeChange,
+  height,
+  title,
+  onNotify,
+}: {
+  points: ChartPoint[];
+  unit?: string;
+  type: ChartType;
+  onTypeChange: (type: ChartType) => void;
+  height: number;
+  title: string;
+  onNotify: NotifyHandler;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState<'png' | 'copy' | null>(null);
+
+  const run = async (mode: 'png' | 'copy') => {
+    const svg = wrapRef.current?.querySelector('svg');
+    if (!svg) {
+      onNotify('暂无可导出的图表');
+      return;
+    }
+    setBusy(mode);
+    try {
+      const blob = await svgToPngBlob(svg);
+      if (!blob) {
+        onNotify('图表导出失败，请改用「下载数据」');
+        return;
+      }
+      if (mode === 'png') {
+        downloadBlob(blob, buildChartFileName(title));
+        onNotify('已导出图表 PNG');
+      } else {
+        const ok = await copyImageBlob(blob);
+        onNotify(ok ? '图表已复制到剪贴板，可直接粘贴' : '复制失败，可改用「PNG」下载');
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const busyIcon = (mode: 'png' | 'copy', fallback: ReactNode) =>
+    busy === mode ? <IconLoader className="h-3.5 w-3.5 animate-rotate" /> : fallback;
+
+  return (
+    <SectionCard
+      icon={<IconChart className="h-3.5 w-3.5" />}
+      title={title}
+      action={
+        <div className="flex items-center gap-1.5">
+          <ChartTypeSwitch value={type} onChange={onTypeChange} />
+          <GhostButton
+            icon={busyIcon('png', <IconDownload className="h-3.5 w-3.5" />)}
+            label="PNG"
+            title="导出图表为 PNG 图片"
+            onClick={() => run('png')}
+          />
+          <GhostButton
+            icon={busyIcon('copy', <IconImage className="h-3.5 w-3.5" />)}
+            label="复制图"
+            title="把图表复制为图片（可粘贴到聊天/文档）"
+            onClick={() => run('copy')}
+          />
+        </div>
+      }
+    >
+      <div ref={wrapRef} className="rounded-lg bg-surface">
+        <DataChart points={points} unit={unit} height={height} type={type} />
+      </div>
+    </SectionCard>
+  );
+}
+
+/** 把自绘 SVG 序列化后栅格化成 2x 高清 PNG Blob（白底，带上页面字体） */
+async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob | null> {
+  try {
+    const viewBox = svg.getAttribute('viewBox') || '0 0 680 250';
+    const nums = viewBox.split(/[\s,]+/).map(Number);
+    const vbW = nums[2] || 680;
+    const vbH = nums[3] || 250;
+
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute('xmlns', SVG_NS);
+    clone.setAttribute('width', String(vbW));
+    clone.setAttribute('height', String(vbH));
+    const fontFamily = window.getComputedStyle(svg).fontFamily;
+    if (fontFamily) clone.style.fontFamily = fontFamily;
+
+    // 补一层白底，否则 PNG 透明背景在深色文档里看不清
+    const bg = document.createElementNS(SVG_NS, 'rect');
+    bg.setAttribute('x', '0');
+    bg.setAttribute('y', '0');
+    bg.setAttribute('width', String(vbW));
+    bg.setAttribute('height', String(vbH));
+    bg.setAttribute('fill', '#ffffff');
+    clone.insertBefore(bg, clone.firstChild);
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('svg image load failed'));
+      img.src = url;
+    });
+
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(vbW * scale);
+    canvas.height = Math.round(vbH * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.drawImage(img, 0, 0, vbW, vbH);
+
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+  } catch {
+    return null;
+  }
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** 复制图片到剪贴板（需安全上下文 + ClipboardItem 支持，失败返回 false） */
+async function copyImageBlob(blob: Blob): Promise<boolean> {
+  try {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') return false;
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildChartFileName(title: string): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(
+    now.getHours(),
+  )}${pad(now.getMinutes())}`;
+  const safe = (title || '图表')
+    .replace(/[\\/:*?"<>|\s]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+  return `${safe || '图表'}_${stamp}.png`;
 }
 
 function PanelSkeleton() {
