@@ -33,7 +33,7 @@ const baseURL = process.env.BASE_URL;
 
 const llm = new ChatOpenAI({
   model: modelName,
-  temperature: 0.1,
+  temperature: 0,
   streaming: true,
   maxRetries: 2,
   apiKey,
@@ -88,16 +88,34 @@ function toMessageLike(m: any): { role: 'system' | 'user' | 'assistant'; content
   return { role, content };
 }
 
-/* ────────────── Few-Shot：5 个覆盖高频场景的示例（需求要求 5 例） ────────────── */
+/* ────────────── Few-Shot：9 个覆盖高频场景的示例（需求原要求 5 例；增 1 例强化「按日二维聚合」、增 1 例强化「平均每天=度量折叠日期」、增 1 例强化「既…又…=交集」、增 1 例强化「时间范围内的量默认按天拆解」） ────────────── */
 // 每个示例的 output 都是完整 JSON，且与"规则 4"结构完全一致，避免模型照着只吐裸 SQL。
 const FEW_SHOT: { input: string; output: string }[] = [
   {
-    input: '查一下最近 7 天西湖区每天的清运总量',
+    input: '上个月每个区每天的平均清运量是多少',
     output: JSON.stringify({
-      sql: "SELECT rm.route_date, SUM(rm.total_weight) AS total_weight FROM t_route_manifest rm JOIN t_region r ON rm.region_id = r.id WHERE r.region_name = '西湖区' AND rm.route_date >= CURRENT_DATE - INTERVAL '7 days' GROUP BY rm.route_date ORDER BY rm.route_date DESC LIMIT 1000",
-      title: '最近 7 天西湖区每日清运总量',
-      summary: '按日期统计西湖区最近 7 天每日清运总重量（kg）。',
-      components: [{ type: 'markdown', data: { content: '西湖区最近 7 天每日清运总量如下，趋势可结合图表查看。' } }],
+      sql: "SELECT r.region_name AS 区域, rm.route_date AS 日期, AVG(rm.total_weight) AS 日均清运量_kg FROM t_route_manifest rm JOIN t_region r ON rm.region_id = r.id WHERE rm.route_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month' AND rm.route_date < date_trunc('month', CURRENT_DATE) GROUP BY r.region_name, rm.route_date ORDER BY r.region_name, rm.route_date LIMIT 1000",
+      title: '上个月各区域每日平均清运量',
+      summary: '按「区域 × 日期」二维粒度统计上个月每日平均清运量（kg），不要把日期维度再聚合掉。',
+      components: [{ type: 'markdown', data: { content: '上个月各区域每日平均清运量如下。' } }],
+    }),
+  },
+  {
+    input: '每辆车平均每天的清运量是多少',
+    output: JSON.stringify({
+      sql: "SELECT v.plate_number AS 车牌号, SUM(rm.total_weight) * 1.0 / COUNT(DISTINCT rm.route_date) AS 日均清运量_kg FROM t_route_manifest rm JOIN t_vehicle v ON rm.vehicle_id = v.id GROUP BY v.plate_number ORDER BY 日均清运量_kg DESC LIMIT 1000",
+      title: '各车辆平均每日清运量',
+      summary: '按车牌聚合，用总清运量除以有清运记录的天数得到「平均每车每天」清运量（kg）；日期维度已折叠，每车一行。',
+      components: [{ type: 'markdown', data: { content: '各车辆平均每日清运量如下。' } }],
+    }),
+  },
+  {
+    input: '这个月既有超速预警、清运量又排前 5 的车',
+    output: JSON.stringify({
+      sql: "WITH top5 AS (SELECT v.id, v.plate_number, SUM(rm.total_weight) AS total_weight FROM t_route_manifest rm JOIN t_vehicle v ON rm.vehicle_id = v.id WHERE rm.route_date >= date_trunc('month', CURRENT_DATE) GROUP BY v.id, v.plate_number ORDER BY total_weight DESC LIMIT 5), overspeed AS (SELECT DISTINCT vehicle_id FROM t_alert WHERE alert_type = '超速' AND alert_time >= date_trunc('month', CURRENT_DATE)) SELECT t.plate_number AS 车牌号, t.total_weight AS 本月清运量_kg FROM top5 t JOIN overspeed o ON t.id = o.vehicle_id ORDER BY t.total_weight DESC LIMIT 1000",
+      title: '本月超速预警且清运量 Top5 的车辆',
+      summary: '先取本月清运量前 5 的车，再与「本月有超速预警」的车辆取交集（「既…又…」= 交集语义），得到既超速预警、清运量又进前 5 的车。',
+      components: [{ type: 'markdown', data: { content: '本月超速预警且清运量 Top5 的车辆如下。' } }],
     }),
   },
   {
@@ -121,7 +139,7 @@ const FEW_SHOT: { input: string; output: string }[] = [
   {
     input: '查浙A·12345 这辆车今天的磅单明细',
     output: JSON.stringify({
-      sql: "SELECT wb.id AS 磅单号, wb.weight AS 重量_kg, wb.waste_type AS 垃圾类型, rm.route_date AS 清运日期 FROM t_weigh_bill wb JOIN t_route_manifest rm ON wb.manifest_id = rm.id JOIN t_vehicle v ON rm.vehicle_id = v.id WHERE v.plate_number LIKE '%浙A%12345%' AND rm.route_date = CURRENT_DATE ORDER BY wb.id LIMIT 1000",
+      sql: "SELECT wb.id AS 磅单号, wb.weight AS 重量_kg, wb.waste_type AS 垃圾类型, rm.route_date AS 清运日期 FROM t_weigh_bill wb JOIN t_route_manifest rm ON wb.manifest_id = rm.id JOIN t_vehicle v ON rm.vehicle_id = v.id WHERE v.plate_number = '浙A·12345' AND rm.route_date = CURRENT_DATE ORDER BY wb.id LIMIT 1000",
       title: '浙A·12345 今日磅单明细',
       summary: '查询浙A·12345 今日所有磅单的重量与垃圾类型。',
       components: [{ type: 'markdown', data: { content: '浙A·12345 今日磅单明细如下。' } }],
@@ -134,6 +152,24 @@ const FEW_SHOT: { input: string; output: string }[] = [
       title: '各区域本月清运量排行',
       summary: '按区域聚合本月清运总量并降序排名。',
       components: [{ type: 'markdown', data: { content: '各区域本月清运量排行如上。' } }],
+    }),
+  },
+  {
+    input: '查一下最近 7 天西湖区每天的清运总量',
+    output: JSON.stringify({
+      sql: "SELECT rm.route_date, SUM(rm.total_weight) AS total_weight FROM t_route_manifest rm JOIN t_region r ON rm.region_id = r.id WHERE r.region_name = '西湖区' AND rm.route_date >= CURRENT_DATE - INTERVAL '7 days' GROUP BY rm.route_date ORDER BY rm.route_date DESC LIMIT 1000",
+      title: '最近 7 天西湖区每日清运总量',
+      summary: '按日期统计西湖区最近 7 天每日清运总重量（kg）。',
+      components: [{ type: 'markdown', data: { content: '西湖区最近 7 天每日清运总量如下，趋势可结合图表查看。' } }],
+    }),
+  },
+  {
+    input: '查下西湖最近一周的垃圾量',
+    output: JSON.stringify({
+      sql: "SELECT rm.route_date AS 日期, SUM(rm.total_weight) AS 清运量_kg FROM t_route_manifest rm JOIN t_region r ON rm.region_id = r.id WHERE r.region_name = '西湖区' AND rm.route_date >= CURRENT_DATE - INTERVAL '7 days' GROUP BY rm.route_date ORDER BY rm.route_date LIMIT 1000",
+      title: '西湖区最近一周每日清运量',
+      summary: '按天拆解西湖区最近 7 天每日清运量（kg），呈现趋势而非只给一个总和。',
+      components: [{ type: 'markdown', data: { content: '西湖区最近一周每日清运量如下。' } }],
     }),
   },
 ];
@@ -154,6 +190,14 @@ const SYSTEM_TEMPLATE = `你是一个垃圾清运领域的 SQL 专家。请根�
 5. sql 字段只放生成的 SELECT 语句（末尾不要分号）；components 里只需要一个 markdown 组件（data.content 放简短中文分析摘要）即可，table 与 echarts 数据由后端按查询结果自动生成，不要你提供。
 6. 本工具只提供只读查询。若用户要求删除/修改/新增数据、要求建表或改表、或问题与本业务无关：不要生成任何 SQL，也不要改成"展示数据"变相响应。此时令 sql 为空字符串，title 写「无法执行该请求」，summary 说明拒绝原因，components 放一个 markdown 组件解释原因。
 7. 若上方「对话历史」里已有前几轮问答，当前问题可能包含指代（如「那上个月呢」「换成滨江区」「再按车辆拆一下」）。请结合历史补全语义后再生成 SQL，不要向用户反问。
+8. 维度保留（按日口径）：问题含「每天 / 每日 / 各天 / 按天 / 每个 X 每天 Y」时，最终结果的粒度必须是「一个维度值 + 一个日期 = 一行」，禁止把日期维度再聚合掉。
+   - 「每个 X 每天 Y」里的 Y 若带「平均」，指的是「每个 (X, 天) 组合内的平均值」：同一天同一区域通常只有一条清运记录，所以直接 GROUP BY 维度列, 日期列 后 AVG(指标) 即可，每行就是一个 (X, 天) 的日均。千万不要先算每日、再在外层按 X 聚合求平均。
+   - 正确写法：SELECT 维度列, 日期列, AVG(指标) ... GROUP BY 维度列, 日期列（例如「上个月每个区每天的平均清运量」→ SELECT r.region_name, rm.route_date, AVG(rm.total_weight) ... GROUP BY r.region_name, rm.route_date）。
+   - 错误写法（会把 20 行折叠成 5 行，务必禁止）：WITH daily AS (SELECT 维度, 日期, SUM(指标) ... GROUP BY 维度, 日期) SELECT 维度, AVG(每日指标) FROM daily GROUP BY 维度。
+   - 仅当问题明确「排名第 N / 最多的 X / Top N / 某区域总量」时才折叠维度或用 LIMIT 1；普通的「各区域 / 各车辆 / 每个 X 每天」统计不要折叠维度、不要加 LIMIT 1。
+   - 例外（「平均」+ 时间单位 = 度量，必须折叠日期）：当「平均」直接修饰时间单位，组成「平均每天 / 平均每月 / 平均每周 / 平均每日」时，它是一个聚合度量短语，表示「按维度聚合后再求日均」，此时必须把日期维度折叠掉，每个维度值只留一行。例如「每辆车平均每天的清运量」→ GROUP BY 车辆列（每车一行，约 9 行），用 SUM(指标) / COUNT(DISTINCT 日期列) 求日均；绝不要写成 GROUP BY 车辆列, 日期列（那会变成每车每天一行、约 131 行，且根本没有跨天平均）。
+   - 记忆口诀：带「每天 / 每日 / 各天 / 按天」作为独立维度时保留日期（如「每个区每天」）；带「平均每天 / 平均每月」作为度量时折叠日期（如「每辆车平均每天」）。两者相反，务必分清。
+9. 车牌号匹配：用 = 精确匹配用户给出的完整车牌（如 v.plate_number = '浙A·12345'），不要写 LIKE '%浙A%12345%'，否则会误并入其他相似车牌的车辆。
 
 ### 示例（严格仿照其 JSON 结构与字段命名）
 下方对话已给出「用户问题 → 标准答案(JSON)」范例，覆盖区域趋势 / 车辆排行 / 预警明细 / 磅单明细 / 状态聚合等高频场景。`;
