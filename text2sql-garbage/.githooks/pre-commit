@@ -1,0 +1,15 @@
+#!/bin/sh
+# text2sql-garbage pre-commit 门禁（零依赖，由 scripts/setup-git-hooks.mjs 安装）
+# 仅做快速本地校验；完整 lint/type/test/build/schema 由 CI 覆盖。
+set -e
+
+echo "▶ [pre-commit] 密钥扫描"
+node scripts/secret-scan.mjs
+
+echo "▶ [pre-commit] 类型检查"
+pnpm typecheck
+
+echo "▶ [pre-commit] ESLint"
+pnpm lint
+
+echo "✅ pre-commit 通过"
