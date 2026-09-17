@@ -194,4 +194,8 @@ push / PR
 - G6 Schema：`check:schema` → 5 张表列集合一致
 - G1 Install：未新增依赖，`pnpm install --frozen-lockfile` 在 CI 上可复现（沙箱 pnpm 不可用，未本地跑，逻辑上绿）
 
+### CI 实测（GitHub Actions runner）
+- run `35207381381`：**G1–G6 全 ✓**（45s）。`! Unexpected any` 为 warning 不阻断；`.github` 那条是 Node 20 弃用提示。
+- 过程中门禁抓出本地被 `next-env.d.ts`/旧类型缓存掩盖的潜在类型错误：`app/layout.tsx` 的 `LayoutProps<"/">` 在 Next 16 干净安装下未定义，已改为 `{ children: ReactNode }` 并复测绿。→ **证明门禁有效**。
+
 > 注：本机 `pnpm` shim 失效，本地验证改用 `node` 直跑各 bin 的 JS 入口；CI runner 上 pnpm 正常。
