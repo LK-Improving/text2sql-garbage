@@ -7,6 +7,7 @@ import {
   IconDatabase,
   IconHistory,
   IconLogo,
+  IconMenu,
   IconPlus,
   IconSidebarCollapse,
   IconStar,
@@ -29,6 +30,7 @@ export function Sidebar({
   onUnavailable,
   collapsed = false,
   onToggle,
+  onOpen,
   mobileOpen = false,
   onMobileClose,
 }: {
@@ -37,6 +39,8 @@ export function Sidebar({
   onUnavailable: UnavailableHandler;
   collapsed?: boolean;
   onToggle?: () => void;
+  /** 桌面端折叠后，从左侧把手重新展开 */
+  onOpen?: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }) {
@@ -51,7 +55,7 @@ export function Sidebar({
       {/* 桌面端：静态侧栏（≥768px 显示，可收起） */}
       <div
         className={`hidden shrink-0 overflow-hidden border-r border-line transition-[width] duration-300 ease-out md:block ${
-          collapsed ? 'w-0' : 'w-[var(--sidebar-w)]'
+          collapsed ? 'w-0 border-r-0' : 'w-[var(--sidebar-w)]'
         }`}
         style={{ '--sidebar-w': `${SIDEBAR_WIDTH}px` } as CSSProperties}
         aria-hidden={collapsed}
@@ -63,6 +67,20 @@ export function Sidebar({
           onToggle={onToggle}
         />
       </div>
+
+      {/* 桌面端：侧栏收起后，左缘的「展开」把手 */}
+      {collapsed && onOpen && (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label="展开侧边栏"
+          title="展开侧边栏"
+          className="group fixed top-1/2 left-0 z-40 hidden -translate-y-1/2 items-center gap-1 rounded-r-xl border border-l-0 border-line bg-surface py-3 pr-1.5 pl-2 text-ink-400 shadow-card transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 md:flex"
+        >
+          <IconMenu className="h-3.5 w-3.5" />
+          <span className="text-[11.5px] [writing-mode:vertical-rl]">菜单</span>
+        </button>
+      )}
 
       {/* 移动端：遮罩 + 抽屉（<768px 显示） */}
       <div

@@ -58,6 +58,8 @@ export function ResultPanel({
   onNotify,
   open,
   onClose,
+  dismissed = false,
+  onToggleDismiss,
   width,
   onWidthChange,
   onDoubleClickResize,
@@ -69,8 +71,13 @@ export function ResultPanel({
   tab: ResultTab;
   onTab: (tab: ResultTab) => void;
   onNotify: NotifyHandler;
+  /** 移动端抽屉是否打开（桌面端不适用） */
   open: boolean;
   onClose: () => void;
+  /** 桌面端：结果面板是否被用户关闭（收起为 0 宽） */
+  dismissed?: boolean;
+  /** 桌面端：在「关闭 / 展开」之间切换 */
+  onToggleDismiss?: () => void;
   width: number;
   onWidthChange: (width: number) => void;
   onDoubleClickResize?: () => void;
@@ -201,26 +208,31 @@ export function ResultPanel({
 
       <aside
         style={{ '--panel-w': `${width}px` } as CSSProperties}
-        className={`fixed inset-y-0 right-0 z-40 flex w-[92vw] max-w-[420px] flex-col border-l border-line bg-surface transition-transform duration-300 ease-out lg:relative lg:z-auto lg:w-[var(--panel-w)] lg:max-w-none lg:translate-x-0 lg:shadow-none ${
-          open ? 'translate-x-0 shadow-pop' : 'translate-x-full'
-        }`}
+        aria-hidden={dismissed}
+        className={`fixed inset-y-0 right-0 z-40 flex flex-col border-l border-line bg-surface transition-transform duration-300 ease-out lg:relative lg:z-auto lg:transition-[width] lg:duration-300 ${
+          dismissed
+            ? 'lg:w-0 lg:min-w-0 lg:overflow-hidden lg:border-l-0'
+            : 'fixed w-[92vw] max-w-[420px] lg:w-[var(--panel-w)] lg:max-w-none'
+        } ${open ? 'translate-x-0 shadow-pop' : 'translate-x-full'} lg:translate-x-0 lg:shadow-none`}
       >
-        {/* 拖拽调宽手柄（仅桌面端） */}
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="拖拽调整结果面板宽度"
-          title="拖拽调整宽度，双击恢复默认"
-          onPointerDown={(e) => beginResize(e, width, onWidthChange, setResizing)}
-          onDoubleClick={onDoubleClickResize}
-          className="group absolute inset-y-0 left-0 z-20 hidden w-2 -translate-x-1/2 cursor-col-resize touch-none select-none lg:block"
-        >
-          <span
-            className={`absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 transition-colors duration-150 ${
-              resizing ? 'bg-brand-500' : 'bg-transparent group-hover:bg-brand-300'
-            }`}
-          />
-        </div>
+        {/* 拖拽调宽手柄（仅桌面端且面板展开时） */}
+        {!dismissed && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="拖拽调整结果面板宽度"
+            title="拖拽调整宽度，双击恢复默认"
+            onPointerDown={(e) => beginResize(e, width, onWidthChange, setResizing)}
+            onDoubleClick={onDoubleClickResize}
+            className="group absolute inset-y-0 left-0 z-20 hidden w-2 -translate-x-1/2 cursor-col-resize touch-none select-none lg:block"
+          >
+            <span
+              className={`absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 transition-colors duration-150 ${
+                resizing ? 'bg-brand-500' : 'bg-transparent group-hover:bg-brand-300'
+              }`}
+            />
+          </div>
+        )}
 
         {/* 标签栏 */}
         <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line px-3">
@@ -248,10 +260,23 @@ export function ResultPanel({
             type="button"
             onClick={onClose}
             aria-label="关闭结果面板"
+            title="关闭结果面板"
             className="shrink-0 rounded-lg p-1.5 text-ink-400 transition-colors hover:bg-canvas hover:text-ink-700 lg:hidden"
           >
             <IconClose className="h-4 w-4" />
           </button>
+
+          {onToggleDismiss && (
+            <button
+              type="button"
+              onClick={onToggleDismiss}
+              aria-label="收起结果面板"
+              title="收起结果面板（提问后自动展开）"
+              className="hidden shrink-0 rounded-lg p-1.5 text-ink-400 transition-colors hover:bg-canvas hover:text-ink-700 lg:block"
+            >
+              <IconClose className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* 内容 */}
@@ -407,6 +432,20 @@ export function ResultPanel({
           )}
         </div>
       </aside>
+
+      {/* 桌面端：面板被收起后，右缘的「展开」把手 */}
+      {dismissed && onToggleDismiss && (
+        <button
+          type="button"
+          onClick={onToggleDismiss}
+          aria-label="展开结果面板"
+          title="展开结果面板"
+          className="group fixed top-1/2 right-0 z-40 hidden -translate-y-1/2 items-center gap-1 rounded-l-xl border border-r-0 border-line bg-surface py-3 pr-2 pl-1.5 text-ink-400 shadow-card transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 lg:flex"
+        >
+          <span className="text-[11.5px] [writing-mode:vertical-rl]">展开结果</span>
+          <IconChevronDown className="h-3.5 w-3.5 rotate-90" />
+        </button>
+      )}
     </>
   );
 }

@@ -20,6 +20,7 @@ const FALLBACK_ERROR = '请求失败，请检查网络或稍后重试。';
 /** 布局偏好持久化 key */
 const PANEL_WIDTH_KEY = 't2s.panelWidth';
 const SIDEBAR_KEY = 't2s.sidebarCollapsed';
+const PANEL_DISMISSED_KEY = 't2s.panelDismissed';
 
 /** 面板拉到最宽时，给中间对话区保留的最小宽度 */
 const CHAT_MIN_WIDTH = 460;
@@ -49,6 +50,8 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   /** 移动端导航抽屉（汉堡菜单）开合状态 */
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  /** 桌面端：结果面板是否被用户关闭（收起为 0 宽） */
+  const [panelDismissed, setPanelDismissed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [rerunning, setRerunning] = useState(false);
 
@@ -91,6 +94,15 @@ export default function Home() {
     });
   }, [persistLayout]);
 
+  /** 桌面端：关闭 / 展开结果面板，并记住偏好 */
+  const togglePanelDismissed = useCallback(() => {
+    setPanelDismissed((prev) => {
+      const next = !prev;
+      persistLayout(PANEL_DISMISSED_KEY, next ? '1' : '0');
+      return next;
+    });
+  }, [persistLayout]);
+
   const loading = turns.some((turn) => turn.status === 'streaming');
   const latestTurn = turns.length ? turns[turns.length - 1] : null;
 
@@ -111,6 +123,7 @@ export default function Home() {
       setPanelWidth(clampPanelWidth(savedWidth));
     }
     if (window.localStorage.getItem(SIDEBAR_KEY) === '1') setSidebarCollapsed(true);
+    if (window.localStorage.getItem(PANEL_DISMISSED_KEY) === '1') setPanelDismissed(true);
   }, [clampPanelWidth]);
 
   // 视口变化时重新收敛宽度
@@ -283,6 +296,8 @@ export default function Home() {
               result: (json.data ?? null) as OutputConfig | null,
               status: 'done',
             }));
+            // 拿到结果时自动展开被收起的结果面板，避免用户错过内容
+            setPanelDismissed(false);
           } else if (json.type === 'error') {
             patch((turn) => ({
               ...turn,
@@ -322,6 +337,7 @@ export default function Home() {
         onUnavailable={showUnavailable}
         collapsed={sidebarCollapsed}
         onToggle={toggleSidebar}
+        onOpen={() => !sidebarCollapsed || toggleSidebar()}
         mobileOpen={mobileNavOpen}
         onMobileClose={() => setMobileNavOpen(false)}
       />
@@ -355,6 +371,8 @@ export default function Home() {
             onNotify={notify}
             open={panelOpen}
             onClose={() => setPanelOpen(false)}
+            dismissed={panelDismissed}
+            onToggleDismiss={togglePanelDismissed}
             width={panelWidth}
             onWidthChange={handlePanelWidth}
             onDoubleClickResize={() => setPanelWidth(clampPanelWidth(DEFAULT_PANEL_WIDTH))}
