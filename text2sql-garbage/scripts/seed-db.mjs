@@ -85,7 +85,7 @@ function buildClientConfig() {
   return { connectionString: DATABASE_URL };
 }
 
-async function withRetry(fn, label, max = 30, waitMs = 2000) {
+async function withRetry(fn, label, max = 6, waitMs = 5000) {
   let lastErr;
   for (let i = 1; i <= max; i++) {
     try {
