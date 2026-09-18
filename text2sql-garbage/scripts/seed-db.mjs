@@ -64,6 +64,25 @@ function resolveDatabaseUrl() {
 
 const DATABASE_URL = resolveDatabaseUrl();
 
+/**
+ * 构造 pg 客户端配置。
+ * Supabase Pooler 使用自签名证书链；新版 pg 将 sslmode=require 视为 verify-full 做链校验，
+ * 在 CI / Serverless 环境常因根证书缺失报 SELF_SIGNED_CERT_IN_CHAIN。
+ * 这里对 supabase 域名「仅加密、不校验证书」（等价 sslmode=no-verify）；连接仍是 TLS 加密的。
+ */
+function buildClientConfig() {
+  const cfg = { connectionString: DATABASE_URL };
+  try {
+    const host = new URL(DATABASE_URL).hostname;
+    if (/(^|\.)supabase\.(co|com)$/.test(host)) {
+      cfg.ssl = { rejectUnauthorized: false };
+    }
+  } catch {
+    /* 非法 URL 时交由下方连接逻辑报错 */
+  }
+  return cfg;
+}
+
 async function withRetry(fn, label, max = 30, waitMs = 2000) {
   let lastErr;
   for (let i = 1; i <= max; i++) {
@@ -98,7 +117,7 @@ async function main() {
   if (!fs.existsSync(SEED)) throw new Error(`找不到 seed.sql: ${SEED}（可用 SEED_SQL_DIR 指定）`);
 
   const client = await withRetry(async () => {
-    const c = new Client({ connectionString: DATABASE_URL });
+    const c = new Client(buildClientConfig());
     await c.connect();
     return c;
   }, 'connect');
