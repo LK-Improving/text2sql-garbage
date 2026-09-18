@@ -10,6 +10,9 @@ out/
 .env
 .env.local
 .env.*.local
+# 部署到 Netlify 的线上环境变量（含真实密钥，仅本地留存，导入 Netlify 用）
+.env.netlify
+.env.netlify.local
 
 # ── 运行时日志（审计日志为运行产物，可重建）──
 logs/
