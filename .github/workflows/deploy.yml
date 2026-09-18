@@ -59,7 +59,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # netlify-cli 及其依赖（@netlify/api 等）要求 Node >= 22.12
+          node-version: 22
           cache: pnpm
           cache-dependency-path: text2sql-garbage/pnpm-lock.yaml
 
@@ -67,14 +68,15 @@ jobs:
         working-directory: text2sql-garbage
         run: pnpm install --frozen-lockfile
 
-      # netlify-cli 读取仓库根 netlify.toml（base=text2sql-garbage）执行 next build 并上传。
+      # 必须从「仓库根」运行：netlify-cli 在 CWD 找 netlify.toml，其中 base="text2sql-garbage"
+      # 是相对仓库根解析的。若把 CWD 设成 text2sql-garbage，base 会被拼成
+      # text2sql-garbage/text2sql-garbage 而报 “Base directory does not exist”。
+      # --build 让 netlify-cli 先按 netlify.toml 执行 next build（含 @netlify/plugin-nextjs）再上传。
       # 生产部署加 --prod；预览不加（生成独立预览 URL，不发布到生产域名）。
       - name: Deploy to Netlify (production)
         if: github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod')
-        working-directory: text2sql-garbage
-        run: npx -y netlify-cli deploy --prod --auth "$NETLIFY_AUTH_TOKEN" --site "$NETLIFY_SITE_ID" --message "prod ${{ github.sha }}"
+        run: npx -y netlify-cli deploy --build --prod --auth "$NETLIFY_AUTH_TOKEN" --site "$NETLIFY_SITE_ID" --message "prod ${{ github.sha }}"
 
       - name: Deploy to Netlify (preview)
         if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'preview')
-        working-directory: text2sql-garbage
-        run: npx -y netlify-cli deploy --auth "$NETLIFY_AUTH_TOKEN" --site "$NETLIFY_SITE_ID" --message "preview ${{ github.sha }}"
+        run: npx -y netlify-cli deploy --build --auth "$NETLIFY_AUTH_TOKEN" --site "$NETLIFY_SITE_ID" --message "preview ${{ github.sha }}"
