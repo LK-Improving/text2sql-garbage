@@ -11,6 +11,10 @@
   `output-config-spec.md`（组件契约）、`ROADMAP.md`（后续优化计划）。
 - 代码在 `text2sql-garbage/`（Next 16 + React 19 + Tailwind v4 + LangChain 1.x + pg）。
 - 造数/评测资产在 `test-data/`：`schema.sql`（5 表 DDL）、`seed.sql`、`text2sql-eval.jsonl`（32 条评测集）。
+- **部署栈（2026-09-18 用户决策）**：前端 **Netlify**（`netlify.toml`，base=text2sql-garbage + `@netlify/plugin-nextjs`），
+  云库 **Supabase（PostgreSQL）**，连接串用 Transaction pooler（`?sslmode=require&pgbouncer=true`，`pg` 原生支持）。
+  原 Vercel+Neon 方案已弃。灌云库走 GitHub Actions `db-setup.yml`（全量 checkout 跑 `seed:db`，绕开子目录路径坑），
+  不依赖 Netlify 构建。外部凭证（`NETLIFY_*` / `HOSTED_DATABASE_URL` / Netlify Env）由用户设置，不代劳。
 
 ## 关键约定（务必遵守）
 1. **表结构单一数据源 = `lib/schema.ts`**。历史上 `lib/schema.ts` 与 `lib/table-metadata.ts`
