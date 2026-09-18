@@ -199,3 +199,37 @@ push / PR
 - 过程中门禁抓出本地被 `next-env.d.ts`/旧类型缓存掩盖的潜在类型错误：`app/layout.tsx` 的 `LayoutProps<"/">` 在 Next 16 干净安装下未定义，已改为 `{ children: ReactNode }` 并复测绿。→ **证明门禁有效**。
 
 > 注：本机 `pnpm` shim 失效，本地验证改用 `node` 直跑各 bin 的 JS 入口；CI runner 上 pnpm 正常。
+
+---
+
+## M2 落地记录（2026-09-18，已提交 master `baed5f5`）
+
+### 新增/修改文件
+| 文件 | 作用 |
+|---|---|
+| `.github/workflows/ci.yml` | 新增 `eval-gate` job（`needs: quality-gates`）：Postgres:16 service container + seed-db 灌库 + `pnpm start` 起服务 + `pnpm eval` + `pnpm eval:gate` 阈值校验 + 上传报告 artifact |
+| `text2sql-garbage/scripts/seed-db.mjs` | **G7 前置**：零依赖 pg 直连，按 `;` 拆条执行 `schema.sql`+`seed.sql`，带连接重试（等 service container 就绪） |
+| `text2sql-garbage/scripts/check-eval.mjs` | **G7 阈值校验**：读最新 `eval-result-*.json`，断言 `execRate≥95 / answerAcc≥90 / p95<5`，不达标 exit 1 |
+| `text2sql-garbage/lib/prompts.ts` | 抽出 `SYSTEM_TEMPLATE`（原内联在 route.ts），集中管理便于 G8 校验 |
+| `text2sql-garbage/lib/__tests__/prompt-health.test.ts` | **G8**：断言 `SYSTEM_TEMPLATE` 只声明 `{tableInfo}` 一个 f-string 变量，且 JSON 示例 `{{ }}` 转义正确（防 `Missing value for input` bug） |
+| `text2sql-garbage/app/api/chat/route.ts` | 改为 `import { SYSTEM_TEMPLATE } from '@/lib/prompts'`，删除内联常量 |
+| `text2sql-garbage/package.json` | 加 `seed:db`、`eval:gate` 脚本（**未新增依赖**，frozen-lockfile 仍有效） |
+
+### 模型 Key 怎么进 CI（零入库）
+- `.env` 的 `API_KEY/BASE_URL/MODEL_NAME` 通过 `gh secret set` 写入仓库 secret（`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL_NAME`），CI 内映射到 `API_KEY/BASE_URL/MODEL_NAME`，**不进 git 历史**。
+- Postgres service container 固定凭证（`postgres/root` + `garbage_db`），`DATABASE_URL` 写死在 job 内。
+
+### 与计划的偏差（已确认）
+- **G8 并入 G4，不单列 job**：`vitest` 的 `include` 已含 `__tests__/**`，prompt 健康单测随单元测试一起跑。
+- **G7 单独 job 且 `needs: quality-gates`**：静态门禁没过就不烧模型配额。
+- **artifact 会带上历史评测文件**：`upload-artifact` 的 glob 把 `test-data/` 下全部历史 `eval-result-*.json` 一并打包（无害，仅噪声）。想干净可让 run-eval 写独立目录或只上传最新一份（列入 M4 小优化）。
+
+### CI 实测（GitHub Actions runner）
+- run `35294408950`：
+  - **Quality Gates (G1–G6)** ✓ 49s（G4 内已含 G8 prompt 单测 2 passed）
+  - **Eval Gate (G7)** ✓ 1m37s —— 真实拉起 Next 服务 + 真实 DeepSeek 模型跑完 41 例
+  - 实测指标：`total 41 / acc 100% / answerAcc 100% / execRate 100% / avg 1.9s / p95 2.4s` → 三项阈值全达标
+- 注解里 `! Unexpected any` 仍 warn 级（M4 待收紧）；`Node.js 20 deprecated` 为平台提示，不影响结果。
+
+### 本地验证
+- `tsc --noEmit` → 0 error；`vitest run lib/__tests__/prompt-health.test.ts` → 2 passed。
