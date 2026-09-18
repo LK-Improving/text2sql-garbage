@@ -64,6 +64,14 @@
   临时拦新连接。`seed-db.mjs` 重试已降到 `max=6 / 5s`，改密码后务必等几分钟再重跑。
 - **GitHub Actions 默认分支**：`gh workflow run` 只派发默认分支上的 `workflow_dispatch`。
   本仓 CI/CD 全在 `master`，若 GitHub 默认分支是 `main` 会 404；用 `gh repo edit --default-branch master` 修正。
+- **Netlify CLI `base` 目录坑（deploy.yml 实踩）**：`netlify.toml` 的 `base="text2sql-garbage"` 是相对
+  **仓库根**解析的；若 `netlify deploy` 步骤又设 `working-directory: text2sql-garbage`，base 会被拼成
+  `text2sql-garbage/text2sql-garbage` → `Base directory does not exist`。**deploy 步骤必须从仓库根运行**。
+  另外 netlify-cli 依赖 `@netlify/api` 要求 Node **>=22.12**（node 20 会 EBADENGINE）；用 `--build` 让 CLI
+  执行 `next build`（含 `@netlify/plugin-nextjs`）。`NETLIFY_AUTH_TOKEN`/`NETLIFY_SITE_ID` 为必设 secret。
+- **Netlify 环境变量改动必须「重新部署」才生效**（官方文档：applied at deploy time）：改 UI env 后旧函数
+  仍用旧值——典型「我明明改了」现场。SSR/API 路由运行时要求变量 scope 含 **Functions**（只勾 Builds 不生效）。
+  排查线上问题先看「最近一次成功的 deploy 时间」是否早于 env 改动。
 - **沙箱 `gh` push 可行**：`git push origin master` 在本机 Git Bash（PortableGit）能直推 GitHub，
   出网代理对 git 走 schannel 证书库可用；但 Bash 内 `cd`/`head`/`tail`/`grep` 等 coreutils 缺失，
   用 `git -C <绝对路径>` 代替 `cd`，输出别接 `| tail`/`head`。
