@@ -11,7 +11,9 @@
     "check:schema": "node scripts/check-schema.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "seed:db": "node scripts/seed-db.mjs",
     "eval": "node scripts/run-eval.mjs",
+    "eval:gate": "node scripts/check-eval.mjs",
     "prepare": "node scripts/setup-git-hooks.mjs"
   },
   "dependencies": {

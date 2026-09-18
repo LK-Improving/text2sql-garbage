@@ -1,7 +1,9 @@
 name: CI
 
-# M1 质量门禁（G1–G6）：lint / typecheck / unit test / build / schema 一致性。
-# 评测门禁（G7，需 Postgres + 模型 Key）在 M2 接入，本工作流不含。
+# 质量门禁 + 评测门禁（G1–G7）
+#   G1–G6：本地/静态（install/lint/typecheck/unit/build/schema）
+#   G7    ：评测门禁（Postgres service + 启服务 + 跑 pnpm eval + 阈值校验）
+#   G8    ：prompt-template 健康单测（已并入 G4 单元测试，见 lib/__tests__/prompt-health.test.ts）
 on:
   push:
     branches: [master]
@@ -47,7 +49,7 @@ jobs:
       - name: "G3 Typecheck"
         run: pnpm typecheck
 
-      # G4 单元测试（vitest，默认 run；覆盖率阈值留待 M1 后续接入 @vitest/coverage-v8）
+      # G4 单元测试（vitest，默认 run；含 G8 prompt-template 健康单测）
       - name: "G4 Unit tests"
         run: pnpm test
 
@@ -60,3 +62,95 @@ jobs:
       # G6 Schema 单一数据源一致性（lib/schema.ts vs test-data/schema.sql）
       - name: "G6 Schema consistency"
         run: pnpm check:schema
+
+  eval-gate:
+    name: Eval Gate (G7)
+    needs: quality-gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: text2sql-garbage
+    # Postgres service container：与本地一致的库名/账号，DATABASE_URL 固定可复现
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: root
+          POSTGRES_DB: garbage_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # 评测库连接串（service container 固定凭证）
+      DATABASE_URL: postgresql://postgres:root@localhost:5432/garbage_db
+      # 模型 Key 走仓库 secret（gh secret set 注入，不进 git 历史）
+      API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+      MODEL_NAME: ${{ secrets.DEEPSEEK_MODEL_NAME }}
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: text2sql-garbage/pnpm-lock.yaml
+
+      # 评测门禁同样需要干净依赖 + 构建产物
+      - name: "G1 Install"
+        run: pnpm install --frozen-lockfile
+
+      # G7-1 灌装评测库（带重试，等 service container 就绪）
+      - name: "G7 Seed DB"
+        run: pnpm seed:db
+
+      # G7-2 生产构建（评测是对真实 `pnpm start` 服务发请求）
+      - name: "G7 Build"
+        run: pnpm build
+
+      # G7-3 启动服务 → 等健康 → 跑评测 → 阈值校验
+      - name: "G7 Run eval + gate"
+        run: |
+          pnpm start &
+          SERVER_PID=$!
+          echo "等待服务就绪 (http://localhost:3000) ..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/ >/dev/null; then
+              echo "✅ 服务已就绪"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "❌ 服务在 60s 内未就绪"
+              kill $SERVER_PID || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          pnpm eval
+          pnpm eval:gate
+          kill $SERVER_PID || true
+
+      # G7-4 无论成败都上传评测报告，便于复盘
+      - name: "G7 Upload report"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          if-no-files-found: ignore
+          path: |
+            test-data/eval-report-*.md
+            test-data/eval-result-*.json
