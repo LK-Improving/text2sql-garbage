@@ -67,20 +67,22 @@ const DATABASE_URL = resolveDatabaseUrl();
 /**
  * 构造 pg 客户端配置。
  * Supabase Pooler 使用自签名证书链；新版 pg 将 sslmode=require 视为 verify-full 做链校验，
- * 在 CI / Serverless 环境常因根证书缺失报 SELF_SIGNED_CERT_IN_CHAIN。
- * 这里对 supabase 域名「仅加密、不校验证书」（等价 sslmode=no-verify）；连接仍是 TLS 加密的。
+ * 且在合并配置时会用 URL 解析出的 ssl 覆盖我们显式传入的 ssl，导致 CI / Serverless 环境报
+ * SELF_SIGNED_CERT_IN_CHAIN。因此这里对 supabase 域名「从 URL 剥掉 sslmode/ssl」，再显式
+ * 仅加密、不校验证书（等价 sslmode=no-verify）；连接仍是 TLS 加密的。
  */
 function buildClientConfig() {
-  const cfg = { connectionString: DATABASE_URL };
   try {
-    const host = new URL(DATABASE_URL).hostname;
-    if (/(^|\.)supabase\.(co|com)$/.test(host)) {
-      cfg.ssl = { rejectUnauthorized: false };
+    const url = new URL(DATABASE_URL);
+    if (/(^|\.)supabase\.(co|com)$/.test(url.hostname)) {
+      url.searchParams.delete('sslmode');
+      url.searchParams.delete('ssl');
+      return { connectionString: url.toString(), ssl: { rejectUnauthorized: false } };
     }
   } catch {
     /* 非法 URL 时交由下方连接逻辑报错 */
   }
-  return cfg;
+  return { connectionString: DATABASE_URL };
 }
 
 async function withRetry(fn, label, max = 30, waitMs = 2000) {

@@ -3,8 +3,9 @@ import { Pool, type PoolConfig } from 'pg';
 /**
  * 构造连接池配置。
  * Supabase Pooler 使用自签名证书链；新版 pg 将 sslmode=require 视为 verify-full 做链校验，
- * 在 Netlify / CI 等环境会报 SELF_SIGNED_CERT_IN_CHAIN。对 supabase 域名仅加密、不校验证书，
- * 连接仍是 TLS 加密的（等价 sslmode=no-verify）。
+ * 且在合并配置时会用 URL 解析出的 ssl 覆盖显式传入的 ssl，导致 Netlify / CI 等环境报
+ * SELF_SIGNED_CERT_IN_CHAIN。因此对 supabase 域名从 URL 剥掉 sslmode/ssl，再显式仅加密、
+ * 不校验证书（等价 sslmode=no-verify）；连接仍是 TLS 加密的。
  */
 function buildPoolConfig(): PoolConfig {
   const cfg: PoolConfig = {
@@ -15,8 +16,11 @@ function buildPoolConfig(): PoolConfig {
   };
   if (process.env.DATABASE_URL) {
     try {
-      const host = new URL(process.env.DATABASE_URL).hostname;
-      if (/(^|\.)supabase\.(co|com)$/.test(host)) {
+      const url = new URL(process.env.DATABASE_URL);
+      if (/(^|\.)supabase\.(co|com)$/.test(url.hostname)) {
+        url.searchParams.delete('sslmode');
+        url.searchParams.delete('ssl');
+        cfg.connectionString = url.toString();
         cfg.ssl = { rejectUnauthorized: false };
       }
     } catch {
