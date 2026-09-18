@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import {
   IconBoard,
   IconClose,
@@ -50,6 +50,24 @@ export function Sidebar({
     onUnavailable(feature);
   };
 
+  // Esc 关闭抽屉；视口变宽到桌面断点时也自动收起，避免状态残留
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onMobileClose?.();
+    };
+    const mq = window.matchMedia('(min-width: 768px)');
+    const onChange = () => {
+      if (mq.matches) onMobileClose?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    mq.addEventListener('change', onChange);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      mq.removeEventListener('change', onChange);
+    };
+  }, [mobileOpen, onMobileClose]);
+
   return (
     <>
       {/* 桌面端：静态侧栏（≥768px 显示，可收起） */}
@@ -82,7 +100,8 @@ export function Sidebar({
         </button>
       )}
 
-      {/* 移动端：遮罩 + 抽屉（<768px 显示） */}
+      {/* 移动端：遮罩 + 抽屉（<768px 显示）
+          注意：抽屉 z-index 必须高于遮罩，否则关闭按钮的点击可能被遮罩吃掉 */}
       <div
         onClick={onMobileClose}
         className={`fixed inset-0 z-50 bg-ink-900/25 backdrop-blur-[2px] transition-opacity duration-200 md:hidden ${
@@ -94,8 +113,8 @@ export function Sidebar({
         role="dialog"
         aria-modal="true"
         aria-label="导航菜单"
-        className={`fixed inset-y-0 left-0 z-50 flex w-[82vw] max-w-[300px] flex-col border-r border-line bg-surface shadow-pop transition-transform duration-300 ease-out md:hidden ${
-          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-[60] flex w-[82vw] max-w-[300px] flex-col border-r border-line bg-surface shadow-pop transition-transform duration-300 ease-out md:hidden ${
+          mobileOpen ? 'translate-x-0' : 'pointer-events-none -translate-x-full'
         }`}
       >
         <SidebarBody

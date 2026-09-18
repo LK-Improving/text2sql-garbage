@@ -94,6 +94,9 @@ export default function Home() {
     });
   }, [persistLayout]);
 
+  /** 移动端抽屉关闭：引用稳定，供 Sidebar 的 Esc/断点监听安全依赖 */
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+
   /** 桌面端：关闭 / 展开结果面板，并记住偏好 */
   const togglePanelDismissed = useCallback(() => {
     setPanelDismissed((prev) => {
@@ -337,9 +340,9 @@ export default function Home() {
         onUnavailable={showUnavailable}
         collapsed={sidebarCollapsed}
         onToggle={toggleSidebar}
-        onOpen={() => !sidebarCollapsed || toggleSidebar()}
+        onOpen={toggleSidebar}
         mobileOpen={mobileNavOpen}
-        onMobileClose={() => setMobileNavOpen(false)}
+        onMobileClose={closeMobileNav}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
