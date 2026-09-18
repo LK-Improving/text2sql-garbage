@@ -54,6 +54,19 @@
   会被「绕过命令校验」拦截，必须用 **PowerShell 工具**本体。
 - **插入 Monaco 等客户端专用库**：用 `next/dynamic(() => import('x').then(m=>m.Editor), { ssr:false })`，
   否则依赖 `window` 的库在 SSR 阶段报错。
+- **Supabase Pooler + `pg` 的 SSL 坑（2026-09-18 实踩）**：`pg` 8.x 把连接串里的 `sslmode=require`
+  解析成 `verify-full`（pg-connection-string 的 deprecation 行为），且**合并配置时会用连接串解析出的 `ssl`
+  覆盖你显式传入的 `ssl`**——只在代码里 `new Client({ connectionString, ssl:{rejectUnauthorized:false} })`
+  无效，仍报 `SELF_SIGNED_CERT_IN_CHAIN`。正确做法：对 supabase 域名从 URL 剥掉 `sslmode`/`ssl`
+  参数后，再显式 `ssl:{rejectUnauthorized:false}`（仍 TLS 加密，等价 `sslmode=no-verify`）。已在
+  `lib/db.ts` 与 `scripts/seed-db.mjs` 的 `buildPoolConfig/buildClientConfig` 落地。
+- **Supabase 认证熔断**：密码错误时 `pg` 快速重连会触发 `(ECIRCUITBREAKER) too many authentication failures`，
+  临时拦新连接。`seed-db.mjs` 重试已降到 `max=6 / 5s`，改密码后务必等几分钟再重跑。
+- **GitHub Actions 默认分支**：`gh workflow run` 只派发默认分支上的 `workflow_dispatch`。
+  本仓 CI/CD 全在 `master`，若 GitHub 默认分支是 `main` 会 404；用 `gh repo edit --default-branch master` 修正。
+- **沙箱 `gh` push 可行**：`git push origin master` 在本机 Git Bash（PortableGit）能直推 GitHub，
+  出网代理对 git 走 schannel 证书库可用；但 Bash 内 `cd`/`head`/`tail`/`grep` 等 coreutils 缺失，
+  用 `git -C <绝对路径>` 代替 `cd`，输出别接 `| tail`/`head`。
 
 ## 评测可复现三要素（P3 沉淀）
 - 跑 `scripts/run-eval.mjs` 前必须：`temperature: 0`（route.ts 已改，消除非确定性）+ **重启 dev server 清空 `@/lib/sql-cache` 内存计划缓存** + 比对器用数值容差（已落地 0.01）。
