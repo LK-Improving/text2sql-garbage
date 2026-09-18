@@ -92,11 +92,11 @@ push / PR
 - [ ] 评测报告里打印「缓存命中率」，若 >0% 说明环境异常，人工排查。
 
 ### 2.5 部署策略
-- **预览环境（PR）**：合 Vercel Preview / 或自托管临时实例，每个 PR 一个 URL，供演示与人工点测。预览库用独立 schema（避免污染）。
-- **生产环境（master / tag）**：
-  - 推荐 Vercel（Next.js 天然契合）；生产 DB 用托管 PostgreSQL（Neon / Supabase 免费层，带连接池），**与 CI 评测库解耦**。
-  - 数据库连接串走生产环境 Secret / Vercel Env，绝不进仓库。
-- **回滚**：Vercel 一个 `git revert` 即回上一版本；或保留最近 N 个部署即时切回。DB 变更需单独评估（本项目 schema 用 `schema.sql` 管理，建议后续引 Flyway/迁移脚本，见 3）。
+- **选型（用户决策，2026-09-18 更新）**：前端 **Netlify**（国内访问比 Vercel 更稳）+ 云库 **Supabase（PostgreSQL）**（与前端解耦）。原计划 Vercel+Neon 作废。
+- **预览环境（PR）**：`Deploy` 工作流对 PR 跑 `netlify deploy`（非 prod），每个 PR 一个预览 URL，供演示与人工点测。预览库复用同一 Supabase（演示数据量小，无需独立 schema）。
+- **生产环境（master / tag）**：`Deploy` 工作流在 `CI` 成功后对 master 跑 `netlify deploy --prod`。数据库用 Supabase **Transaction pooler** 连接串（`?sslmode=require&pgbouncer=true`，`pg` 原生支持）。
+- **凭据零入库**：`NETLIFY_AUTH_TOKEN`/`NETLIFY_SITE_ID` 与 `HOSTED_DATABASE_URL` 走 GitHub Secrets；运行时 `DATABASE_URL`/`API_KEY`/`BASE_URL`/`MODEL_NAME` 在 Netlify 控制台设置。
+- **回滚**：Netlify 一个 `git revert` 即回上一版本；或控制台保留最近 N 个部署即时切回。DB 变更需单独评估（schema 用 `schema.sql` 管理，建议后续引 Flyway/迁移脚本，见 M4）。
 
 ### 2.6 成本与节流
 - [ ] eval 门禁**不必每次 push 都跑**：配置为「PR 目标 master 时 + 推 master 时 + 每日定时（nightly）」三触发；纯 feature 分支的普通 push 只跑 G1–G6。
@@ -110,15 +110,18 @@ push / PR
 | 文件 | 作用 | 阶段 |
 |---|---|---|
 | `.github/workflows/ci.yml` | lint/typecheck/test/build/schema-check/eval 全流程 | M1 |
-| `.github/workflows/deploy.yml` | preview + production 部署（或并入 ci.yml） | M3 |
+| `.github/workflows/deploy.yml` | Netlify 预览(PR)+生产(CI 成功后 master) 部署，受门禁卡控 | M3 |
+| `.github/workflows/db-setup.yml` | 手动 `workflow_dispatch` 灌 Supabase 云库（绕开子目录路径坑） | M3 |
+| `netlify.toml` | Netlify 构建配置（base=text2sql-garbage + @netlify/plugin-nextjs） | M3 |
+| `text2sql-garbage/scripts/seed-db.mjs` | 增 `SEED_SQL_DIR`+多级回退，本地/CI/云库灌装通用 | M1/M3 |
 | `.husky/pre-commit` | 提交前 eslint/tsc/密钥扫描 | M1 |
 | `.lint-stagedrc.json` | 仅对暂存文件跑 lint | M1 |
 | `scripts/check-schema.mjs` | `lib/schema.ts` vs `schema.sql` 一致性校验（G6） | M1 |
 | `vitest.config.ts`（补） | 配置 coverage（仅纯函数模块阈值） | M1 |
 | `.gitleaks.toml` + gitleaks action | 密钥扫描兜底 | M1 |
-| `test-data/schema.sql` / `seed.sql` | CI 评测库灌装数据源（已存在，复用） | — |
+| `test-data/schema.sql` / `seed.sql` | CI 评测库 + 云库灌装数据源（已存在，复用） | — |
 | DB 迁移脚本（如 `migrations/*.sql`） | 后续把 schema 纳入版本化迁移，支持回滚 | M4 |
-| `README.md`（补） | 加 CI 状态徽章 + 「如何本地跑评测」说明 | M3 |
+| `README.md` | CI 徽章 + 本地复现评测 + Netlify/Supabase 部署 runbook | M3 |
 
 ---
 
@@ -137,11 +140,13 @@ push / PR
 - [ ] 在本地用一份临时 PG 先手动跑通整条 eval 链路，再上 CI。
 - [ ] 加 G8 提示词模板健康测试。
 
-### M3 · 部署流水线（约 0.5–1 天）
-- [ ] 配 Vercel（或自托管）+ 生产托管 PG（Neon/Supabase）。
-- [ ] 加 deploy.yml：PR → preview；master/tag + approve → production。
-- [ ] 生产/预览 DB 连接串用 Secret / 平台 Env。
-- [ ] README 加 CI 徽章与「本地复现评测」说明。
+### M3 · 部署流水线（Netlify + Supabase，2026-09-18 落地脚手架）
+- [x] `netlify.toml`：base=text2sql-garbage + `@netlify/plugin-nextjs` + NODE_VERSION=20 + `NEXT_TELEMETRY_DISABLED`。
+- [x] `.github/workflows/deploy.yml`：PR→预览（`netlify deploy`）；`CI` 成功+master→生产（`--prod`）；`workflow_dispatch` 手动。
+- [x] `.github/workflows/db-setup.yml`：手动灌 Supabase（`HOSTED_DATABASE_URL` Secret + `SEED_SQL_DIR` 指向仓库根 test-data）。
+- [x] `seed-db.mjs` 加固：`SEED_SQL_DIR` 覆盖 + 多级回退（ROOT/test-data → APP/test-data）。
+- [x] `.env.example` 重写（去 OPENAI 旧命名，补部署变量说明）+ `README.md`（徽章 + runbook）。
+- [ ] **待用户执行（外部凭证，不代劳）**：建 Supabase 项目 + 设 `HOSTED_DATABASE_URL`；建 Netlify 站点(Base=text2sql-garbage) + 设 `NETLIFY_*` + Netlify Env(`DATABASE_URL/API_KEY/BASE_URL/MODEL_NAME`)；跑一次 DB Setup；push master 触发首次生产部署。
 
 ### M4 · 加固与可观测（按需）
 - [ ] DB schema 纳入迁移管理（Flyway/轻量迁移脚本 + 回滚）。
@@ -233,3 +238,39 @@ push / PR
 
 ### 本地验证
 - `tsc --noEmit` → 0 error；`vitest run lib/__tests__/prompt-health.test.ts` → 2 passed。
+
+---
+
+## M3 落地记录（2026-09-18，脚手架已提交，待用户接外部凭证）
+
+### 选型变更（用户决策）
+- 原方案 Vercel + Neon → 改为 **Netlify（前端，国内访问更稳）+ Supabase（云 PostgreSQL）**。
+- 理由：国内网络环境下 Netlify 比 Vercel 可达性更好；Supabase 托管 PG 与前端解耦、免费层够演示。
+
+### 新增/修改文件
+| 文件 | 作用 |
+|---|---|
+| `netlify.toml` | Netlify 构建配置：base=text2sql-garbage、command=`pnpm next build`、publish=.next、`@netlify/plugin-nextjs`、NODE_VERSION=20、NEXT_TELEMETRY_DISABLED=1 |
+| `.github/workflows/deploy.yml` | Netlify 部署：PR→预览、CI 成功+master→生产（`workflow_run` 卡门禁）、`workflow_dispatch` 手动；用 `NETLIFY_AUTH_TOKEN`/`NETLIFY_SITE_ID` |
+| `.github/workflows/db-setup.yml` | 手动灌 Supabase：`HOSTED_DATABASE_URL` Secret + `SEED_SQL_DIR`=仓库根 test-data 跑 `pnpm seed:db` |
+| `text2sql-garbage/scripts/seed-db.mjs` | 增 `SEED_SQL_DIR` 覆盖 + 多级回退（ROOT/test-data → APP/test-data），本地/CI/云库通用 |
+| `text2sql-garbage/.env.example` | 去 OPENAI 旧命名，补 Supabase/Netlify 部署变量与 Secrets 清单说明 |
+| `README.md` | CI/Deploy 徽章 + 本地复现评测 + Netlify/Supabase 部署 runbook（6 步） |
+| `CI-CD-PLAN.md` | 2.5/3/4 节同步为 Netlify+Supabase；本 M3 落地记录 |
+
+### 关键设计决策（避坑）
+- **子目录路径坑**：项目在 `text2sql-garbage/`，Netlify 构建上下文可能拿不到仓库根 `test-data/`。
+  → 灌云库改从 **GitHub Actions 全量 checkout** 跑（`db-setup.yml`），不依赖 Netlify 构建；`seed-db.mjs` 多级回退进一步兜底。
+- **Supabase 连接**：云库用 Transaction pooler 串（`?sslmode=require&pgbouncer=true`），`pg` 原生支持 `sslmode`，`db.ts` 无需改；`max:10` 配连接池演示够用（M4 可下调/走 pooler 调优）。
+- **门禁不污染**：Deploy/DB-Setup 是独立工作流，缺 `NETLIFY_*`/`HOSTED_DATABASE_URL` Secret 时只失败自身、不红主 `CI`。
+
+### 待用户执行的外部步骤（零代劳，纯交接）
+1. Supabase 建项目 → 复制 Transaction pooler 连接串 → GitHub Secrets 加 `HOSTED_DATABASE_URL`。
+2. Netlify 导入仓库，Base directory 填 `text2sql-garbage` → 取 `NETLIFY_SITE_ID` + 生成 `NETLIFY_AUTH_TOKEN` → GitHub Secrets 加这两项。
+3. Netlify 控制台 Environment variables 加 `DATABASE_URL`(=Supabase 串)/`API_KEY`/`BASE_URL`/`MODEL_NAME`/`NEXT_TELEMETRY_DISABLED=1`。
+4. GitHub Actions → **DB Setup** → Run workflow（灌云库）。
+5. push master（或 Actions → Deploy → Run workflow）→ 首次生产部署；开 PR 验证预览 URL。
+
+### 验证状态
+- 脚手架已 `node --check` 语法校验通过（见下方提交）；未跑真实部署（需用户 Supabase/Netlify 凭证，沙箱 TLS 拦截下也无法 `netlify login`）。
+- 主 `CI` 工作流不受影响（M2 仍全绿）；新增 `Deploy`/`DB Setup` 在未配置 Secret 前不会误红主流程。

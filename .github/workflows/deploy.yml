@@ -1,0 +1,80 @@
+name: Deploy
+
+# M3 部署流水线（Netlify 前端 + Supabase 云库）
+#   - PR                  → Netlify 预览部署（非 prod，每个 PR 一个 URL，供演示/点测）
+#   - CI 成功 + push master → Netlify 生产部署（workflow_run 卡门禁，未过 CI 不发布）
+#   - workflow_dispatch    → 手动重跑（选 preview / prod）
+#
+# 凭据（GitHub Repo Secrets，零入库）：
+#   NETLIFY_AUTH_TOKEN  Netlify 个人访问令牌（User Settings → Personal access tokens）
+#   NETLIFY_SITE_ID     Netlify Site API ID（Site settings → Site information → API ID）
+# 注：NETLIFY_AUTH_TOKEN 在 PR 来自 fork 时不可用（GitHub 安全限制），本仓库自用无影响。
+#
+# 云库（Supabase）凭据走另一个工作流 db-setup.yml（HOSTED_DATABASE_URL），本文件不碰数据库。
+# 运行时密钥 DATABASE_URL/API_KEY/BASE_URL/MODEL_NAME 在 Netlify 控制台设置，不在此传入。
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "部署目标"
+        required: true
+        default: "prod"
+        type: choice
+        options:
+          - prod
+          - preview
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Netlify Deploy
+    runs-on: ubuntu-latest
+    # 仅在这些条件下运行：手动 / PR / CI 成功后的 master 推送
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: setup-node/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: text2sql-garbage/pnpm-lock.yaml
+
+      - name: Install deps (frozen-lockfile)
+        working-directory: text2sql-garbage
+        run: pnpm install --frozen-lockfile
+
+      # netlify-cli 读取仓库根 netlify.toml（base=text2sql-garbage）执行 next build 并上传。
+      # 生产部署加 --prod；预览不加（生成独立预览 URL，不发布到生产域名）。
+      - name: Deploy to Netlify (production)
+        if: github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod')
+        working-directory: text2sql-garbage
+        run: npx -y netlify-cli deploy --prod --auth "$NETLIFY_AUTH_TOKEN" --site "$NETLIFY_SITE_ID" --message "prod ${{ github.sha }}"
+
+      - name: Deploy to Netlify (preview)
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'preview')
+        working-directory: text2sql-garbage
+        run: npx -y netlify-cli deploy --auth "$NETLIFY_AUTH_TOKEN" --site "$NETLIFY_SITE_ID" --message "preview ${{ github.sha }}"

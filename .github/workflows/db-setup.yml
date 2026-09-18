@@ -1,0 +1,59 @@
+name: DB Setup
+
+# M3 云库灌装（Supabase）
+#   - 手动触发（workflow_dispatch）：用 HOSTED_DATABASE_URL 把 schema.sql + seed.sql 灌进 Supabase。
+#   - 为什么从这里跑而不是 Netlify 构建里跑：项目在子目录 text2sql-garbage，Netlify 构建上下文
+#     可能拿不到仓库根的 test-data/；GitHub Actions checkout 是全量仓库，路径稳定，规避该坑。
+#   - 脚本自带 DROP+CREATE（幂等），可安全重复执行；schema/seed 变更后重跑即可。
+#
+# 凭据（GitHub Repo Secret，零入库）：
+#   HOSTED_DATABASE_URL  Supabase 连接串（推荐 Transaction pooler：xxxx-pooler.supabase.com:6543，
+#                       带 ?sslmode=require&pgbouncer=true），在 Supabase 控制台 Project Settings → Database 获取。
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "目标库（仅用于标注，连接串由 HOSTED_DATABASE_URL 决定）"
+        required: false
+        default: "supabase"
+        type: string
+
+jobs:
+  seed:
+    name: Seed Supabase
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.HOSTED_DATABASE_URL }}
+      # 显式指定种子目录为仓库根 test-data（全量 checkout 必存在）
+      SEED_SQL_DIR: ${{ github.workspace }}/test-data
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: setup-node/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: text2sql-garbage/pnpm-lock.yaml
+
+      - name: Install deps (frozen-lockfile)
+        working-directory: text2sql-garbage
+        run: pnpm install --frozen-lockfile
+
+      - name: Seed cloud DB
+        if: ${{ env.DATABASE_URL != '' }}
+        working-directory: text2sql-garbage
+        run: pnpm seed:db
+
+      - name: Missing HOSTED_DATABASE_URL
+        if: ${{ env.DATABASE_URL == '' }}
+        run: |
+          echo "::error::未配置 Secret HOSTED_DATABASE_URL，无法灌库。请在仓库 Settings → Secrets 添加 Supabase 连接串后重试。"
+          exit 1

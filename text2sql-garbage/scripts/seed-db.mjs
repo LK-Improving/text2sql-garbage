@@ -25,8 +25,30 @@ const { Client } = require('pg');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(__dirname, '..'); // text2sql-garbage
 const ROOT = path.resolve(__dirname, '../..'); // 仓库根
-const SCHEMA = path.resolve(ROOT, 'test-data/schema.sql');
-const SEED = path.resolve(ROOT, 'test-data/seed.sql');
+
+/**
+ * 种子 SQL 目录解析（支持三处回退）：
+ *   1. 显式 SEED_SQL_DIR 环境变量（绝对 / 相对路径皆可）
+ *   2. 仓库根 test-data/（本地仓库 / GitHub Actions 全量 checkout 场景可用）
+ *   3. text2sql-garbage/test-data/（部署兜底）
+ * 目的：无论本机、CI 评测容器、还是 GitHub Actions 手动灌云库（db-setup.yml）都能定位
+ *       schema.sql / seed.sql；即便 Netlify 构建上下文只含子目录也不影响——灌库走
+ *       GitHub Actions 而非 Netlify 构建（见 CI-CD-PLAN.md M3 路径坑说明）。
+ */
+function resolveSeedDir() {
+  if (process.env.SEED_SQL_DIR) return path.resolve(process.env.SEED_SQL_DIR);
+  const candidates = [
+    path.join(ROOT, 'test-data'),
+    path.join(APP, 'test-data'),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'schema.sql'))) return dir;
+  }
+  return candidates[0]; // 默认回退，缺失时下方会抛清晰错误
+}
+const SEED_DIR = resolveSeedDir();
+const SCHEMA = path.join(SEED_DIR, 'schema.sql');
+const SEED = path.join(SEED_DIR, 'seed.sql');
 
 function resolveDatabaseUrl() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
@@ -71,8 +93,9 @@ async function runScript(client, file, label) {
 }
 
 async function main() {
-  if (!fs.existsSync(SCHEMA)) throw new Error(`找不到 schema.sql: ${SCHEMA}`);
-  if (!fs.existsSync(SEED)) throw new Error(`找不到 seed.sql: ${SEED}`);
+  console.log(`▶ 种子目录：${SEED_DIR}`);
+  if (!fs.existsSync(SCHEMA)) throw new Error(`找不到 schema.sql: ${SCHEMA}（可用 SEED_SQL_DIR 指定）`);
+  if (!fs.existsSync(SEED)) throw new Error(`找不到 seed.sql: ${SEED}（可用 SEED_SQL_DIR 指定）`);
 
   const client = await withRetry(async () => {
     const c = new Client({ connectionString: DATABASE_URL });

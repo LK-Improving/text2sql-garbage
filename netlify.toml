@@ -1,0 +1,26 @@
+# Netlify 构建配置 —— text2sql-garbage（Next.js 16 + React 19 + Tailwind v4 + LangChain）
+#
+# 选型说明（M3）：
+#  - 前端托管用 Netlify：国内访问比 Vercel 更稳（用户决策）。
+#  - 云数据库用 Supabase（PostgreSQL）：与 Netlify 解耦，连接串走 Netlify Site Env。
+#  - 项目在子目录 `text2sql-garbage`，故用 `base` 指定；配套部署脚本见
+#    .github/workflows/deploy.yml（Netlify CLI 部署）+ db-setup.yml（Supabase 灌库）。
+#
+# 重要：Secret 不入仓。以下仅放构建期非敏感变量；运行时密钥
+# （DATABASE_URL / API_KEY / BASE_URL / MODEL_NAME）在 Netlify 控制台设置，
+# 详见 README「部署 runbook」。
+
+[build]
+  base = "text2sql-garbage"
+  # 用 pnpm 显式调用，确保 CI 里 netlify-cli 能解析到本地 next（避免 .bin 未在 PATH 的坑）
+  command = "pnpm next build"
+  publish = ".next"
+
+[build.environment]
+  NEXT_TELEMETRY_DISABLED = "1"
+  NODE_VERSION = "20"
+
+# Next.js 官方 Netlify 运行时：自动把 SSR / API Route 编译为 Netlify Functions。
+# Netlify 会在构建时自动安装该插件（无需本地 npm i）。
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
