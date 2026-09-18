@@ -136,6 +136,12 @@ export const IconRefresh = (p: P) => (
   </S>
 );
 
+export const IconMenu = (p: P) => (
+  <S {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </S>
+);
+
 export const IconGlobe = (p: P) => (
   <S {...p}>
     <circle cx="12" cy="12" r="8.6" />

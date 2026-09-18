@@ -47,6 +47,8 @@ export default function Home() {
   const [toast, setToast] = useState<{ key: number; text: string } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  /** 移动端导航抽屉（汉堡菜单）开合状态 */
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [rerunning, setRerunning] = useState(false);
 
@@ -219,6 +221,7 @@ export default function Home() {
     setInput('');
     setTab('overview');
     setPanelOpen(false);
+    setMobileNavOpen(false);
 
     const patch = (updater: (turn: Turn) => Turn) =>
       setTurns((prev) => prev.map((turn) => (turn.id === id ? updater(turn) : turn)));
@@ -319,6 +322,8 @@ export default function Home() {
         onUnavailable={showUnavailable}
         collapsed={sidebarCollapsed}
         onToggle={toggleSidebar}
+        mobileOpen={mobileNavOpen}
+        onMobileClose={() => setMobileNavOpen(false)}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -329,6 +334,7 @@ export default function Home() {
           onOpenPanel={() => setPanelOpen(true)}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
+          onOpenNav={() => setMobileNavOpen(true)}
         />
 
         <div className="flex min-h-0 flex-1">

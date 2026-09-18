@@ -121,7 +121,7 @@ function Welcome({ onAsk }: { onAsk: (question: string) => void }) {
           </div>
 
           <div className="pt-0.5">
-            <h1 className="text-[26px] leading-tight font-semibold tracking-tight text-ink-900">
+            <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-ink-900 sm:text-[26px]">
               你好，我是数据助手
             </h1>
             <p className="mt-1.5 max-w-[520px] text-[14px] leading-relaxed text-ink-500">
@@ -469,7 +469,7 @@ function Composer({
               }
             }}
             placeholder="请输入你的问题，例如：最近7天的垃圾清运量是多少？"
-            className="scroll-thin max-h-[168px] min-h-[38px] flex-1 resize-none bg-transparent px-2 py-2 text-[14px] leading-relaxed text-ink-900 outline-none placeholder:text-ink-400"
+            className="scroll-thin max-h-[168px] min-h-[38px] flex-1 resize-none bg-transparent px-2 py-2 text-base leading-relaxed text-ink-900 outline-none placeholder:text-ink-400 md:text-[14px]"
           />
 
           <button

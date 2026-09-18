@@ -5,6 +5,7 @@ import {
   IconDatabase,
   IconHelp,
   IconLayers,
+  IconMenu,
   IconSidebarExpand,
   IconUser,
 } from './icons';
@@ -17,6 +18,7 @@ export function TopBar({
   onOpenPanel,
   sidebarCollapsed = false,
   onToggleSidebar,
+  onOpenNav,
 }: {
   loading: boolean;
   hasResult: boolean;
@@ -24,10 +26,22 @@ export function TopBar({
   onOpenPanel: () => void;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  onOpenNav?: () => void;
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-line bg-surface/85 px-4 backdrop-blur-md lg:px-6">
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-surface/85 px-3 backdrop-blur-md lg:px-6">
+      <div className="flex min-w-0 items-center gap-1.5">
+        {onOpenNav && (
+          <button
+            type="button"
+            onClick={onOpenNav}
+            aria-label="打开导航菜单"
+            title="菜单"
+            className="shrink-0 rounded-lg p-1.5 text-ink-400 transition-colors hover:bg-canvas hover:text-ink-700 md:hidden"
+          >
+            <IconMenu className="h-[18px] w-[18px]" />
+          </button>
+        )}
         {sidebarCollapsed && onToggleSidebar && (
           <button
             type="button"
@@ -93,7 +107,7 @@ export function TopBar({
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-linear-to-br from-brand-400 to-brand-600 text-white">
             <IconUser className="h-3.5 w-3.5" />
           </span>
-          <span className="text-[12.5px] font-medium text-ink-700">用户名</span>
+          <span className="hidden text-[12.5px] font-medium text-ink-700 sm:block">用户名</span>
         </button>
       </div>
     </header>
