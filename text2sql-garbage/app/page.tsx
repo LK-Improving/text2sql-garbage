@@ -13,7 +13,7 @@ import { Sidebar } from './components/Sidebar';
 import { Toast } from './components/Toast';
 import { TopBar } from './components/TopBar';
 import { classifyError } from '@/lib/error-hints';
-import type { ChatMessage, OutputConfig, ResultTab, Turn } from './components/types';
+import type { ChatMessage, Conversation, OutputConfig, ResultTab, Turn } from './components/types';
 
 const FALLBACK_ERROR = '请求失败，请检查网络或稍后重试。';
 
@@ -21,6 +21,9 @@ const FALLBACK_ERROR = '请求失败，请检查网络或稍后重试。';
 const PANEL_WIDTH_KEY = 't2s.panelWidth';
 const SIDEBAR_KEY = 't2s.sidebarCollapsed';
 const PANEL_DISMISSED_KEY = 't2s.panelDismissed';
+/** 会话数据持久化 key */
+const CONV_KEY = 't2s.conversations';
+const ACTIVE_KEY = 't2s.activeId';
 
 /** 面板拉到最宽时，给中间对话区保留的最小宽度 */
 const CHAT_MIN_WIDTH = 460;
@@ -41,8 +44,19 @@ function normalizeChunk(content: unknown): string {
   return '';
 }
 
+/** 由首条问题生成会话标题 */
+function deriveTitle(question: string): string {
+  const cleaned = question.replace(/\s+/g, ' ').trim();
+  return cleaned.slice(0, 18) || '新对话';
+}
+
+function newId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export default function Home() {
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [tab, setTab] = useState<ResultTab>('overview');
   const [toast, setToast] = useState<{ key: number; text: string } | null>(null);
@@ -56,8 +70,18 @@ export default function Home() {
   const [rerunning, setRerunning] = useState(false);
 
   const busyRef = useRef(false);
-  /** turns 的镜像：ask 的 useCallback 依赖为空，直接读 turns 会拿到旧值，用 ref 规避陈旧闭包 */
-  const turnsRef = useRef<Turn[]>([]);
+  /** 供 ask / handleRerun 读取最新状态，避免 useCallback 陈旧闭包 */
+  const conversationsRef = useRef<Conversation[]>([]);
+  const activeIdRef = useRef<string | null>(null);
+
+  /** 当前会话（派生） */
+  const activeConv = useMemo(
+    () => conversations.find((c) => c.id === activeId) ?? null,
+    [conversations, activeId],
+  );
+  const turns = activeConv?.turns ?? [];
+  const latestTurn = turns.length ? turns[turns.length - 1] : null;
+  const loading = turns.some((turn) => turn.status === 'streaming');
 
   /** 面板宽度收敛到 [MIN, MAX]，并保证对话区不会被挤没 */
   const clampPanelWidth = useCallback((value: number) => {
@@ -106,18 +130,67 @@ export default function Home() {
     });
   }, [persistLayout]);
 
-  const loading = turns.some((turn) => turn.status === 'streaming');
-  const latestTurn = turns.length ? turns[turns.length - 1] : null;
-
-  // 同步 turns 到 ref（供 ask 构造多轮上下文）
+  // 同步最新状态到 ref（供 ask 构造多轮上下文）
   useEffect(() => {
-    turnsRef.current = turns;
-  }, [turns]);
+    conversationsRef.current = conversations;
+  }, [conversations]);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
-  const historyItems = useMemo(
-    () => [...turns].reverse().map((turn) => ({ id: turn.id, question: turn.question })),
-    [turns],
-  );
+  // 首次挂载：恢复会话数据（放 effect 里避免 SSR/CSR 不一致）
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(CONV_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Conversation[];
+        if (Array.isArray(parsed) && parsed.length) {
+          setConversations(parsed);
+          const aid = window.localStorage.getItem(ACTIVE_KEY);
+          setActiveId(aid && parsed.some((c) => c.id === aid) ? aid : parsed[0].id);
+          return;
+        }
+      }
+    } catch {
+      /* 解析失败则回落到空会话 */
+    }
+    // 没有任何存储 → 初始化一个空会话，保证 UI 可用
+    const id = newId('conv');
+    setConversations([{ id, title: '新对话', turns: [], createdAt: Date.now(), updatedAt: Date.now() }]);
+    setActiveId(id);
+    // 只在挂载时跑一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 兜底：activeId 指向的会话不存在时（例如被删除），自动落到第一个；全删则置空
+  useEffect(() => {
+    if (activeId && conversations.some((c) => c.id === activeId)) return;
+    setActiveId(conversations.length ? conversations[0].id : null);
+  }, [conversations, activeId]);
+
+  // 会话数据落盘（防抖，避免流式输出期间高频写入）
+  const saveTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (conversations.length === 0) return;
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(CONV_KEY, JSON.stringify(conversations));
+      } catch {
+        /* 配额超限等，忽略 */
+      }
+    }, 400);
+    return () => {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    };
+  }, [conversations]);
+  useEffect(() => {
+    try {
+      if (activeId) window.localStorage.setItem(ACTIVE_KEY, activeId);
+    } catch {
+      /* 忽略 */
+    }
+  }, [activeId]);
 
   // 首次挂载：恢复上次的布局偏好（放 effect 里避免 SSR/CSR 不一致）
   useEffect(() => {
@@ -153,11 +226,51 @@ export default function Home() {
     setToast({ key: Date.now(), text: message });
   }, []);
 
+  /** 新建一个空会话并切换过去 */
+  const handleNewChat = useCallback(() => {
+    const id = newId('conv');
+    setConversations((prev) => [
+      { id, title: '新对话', turns: [], createdAt: Date.now(), updatedAt: Date.now() },
+      ...prev,
+    ]);
+    setActiveId(id);
+    setInput('');
+    setTab('overview');
+    setPanelOpen(false);
+    setMobileNavOpen(false);
+  }, []);
+
+  /** 切换会话 */
+  const handleSelect = useCallback((id: string) => {
+    setActiveId(id);
+    setMobileNavOpen(false);
+    setPanelDismissed(false);
+  }, []);
+
+  /** 删除会话（有内容的先确认，避免误删） */
+  const handleDelete = useCallback((id: string) => {
+    const target = conversationsRef.current.find((c) => c.id === id);
+    if (target && target.turns.length && !window.confirm('删除该对话？历史记录将一并清空。')) {
+      return;
+    }
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  /** 重命名会话 */
+  const handleRename = useCallback((id: string, title: string) => {
+    const t = title.trim().slice(0, 30);
+    if (!t) return;
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title: t, updatedAt: Date.now() } : c)),
+    );
+  }, []);
+
   /** 结果面板「重新执行」：把编辑后的 SQL 交给 /api/execute（走校验但不过大模型） */
   const handleRerun = useCallback(
     async (sql: string) => {
-      const targetId = latestTurn?.id;
-      if (!targetId || !sql.trim() || rerunning) return;
+      const targetId = activeIdRef.current;
+      const targetTurnId = latestTurn?.id;
+      if (!targetId || !targetTurnId || !sql.trim() || rerunning) return;
       setRerunning(true);
       try {
         const res = await fetch('/api/execute', {
@@ -175,35 +288,51 @@ export default function Home() {
         if (!res.ok || !data?.ok) {
           const hint = classifyError(data?.error || `执行失败（${res.status}）`);
           const err = data?.error || `${hint.label}：${hint.message}`;
-          setTurns((prev) =>
-            prev.map((turn) =>
-              turn.id === targetId
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === targetId
                 ? {
-                    ...turn,
-                    result: {
-                      sql: typeof data?.sql === 'string' ? data.sql : sql,
-                      title: '自定义查询',
-                      summary: `${err}\n\n> ${data?.suggestion || hint.suggestion}`,
-                      components: [
-                        {
-                          type: 'markdown',
-                          data: {
-                            content: `**⚠️ ${hint.label}**：${hint.message}\n\n> ${data?.suggestion || hint.suggestion}`,
-                          },
-                        },
-                      ],
-                    } as OutputConfig,
+                    ...c,
+                    updatedAt: Date.now(),
+                    turns: c.turns.map((turn) =>
+                      turn.id === targetTurnId
+                        ? {
+                            ...turn,
+                            result: {
+                              sql: typeof data?.sql === 'string' ? data.sql : sql,
+                              title: '自定义查询',
+                              summary: `${err}\n\n> ${data?.suggestion || hint.suggestion}`,
+                              components: [
+                                {
+                                  type: 'markdown',
+                                  data: {
+                                    content: `**⚠️ ${hint.label}**：${hint.message}\n\n> ${data?.suggestion || hint.suggestion}`,
+                                  },
+                                },
+                              ],
+                            } as OutputConfig,
+                          }
+                        : turn,
+                    ),
                   }
-                : turn,
+                : c,
             ),
           );
           notify(err);
           return;
         }
 
-        setTurns((prev) =>
-          prev.map((turn) =>
-            turn.id === targetId ? { ...turn, result: data as OutputConfig } : turn,
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === targetId
+              ? {
+                  ...c,
+                  updatedAt: Date.now(),
+                  turns: c.turns.map((turn) =>
+                    turn.id === targetTurnId ? { ...turn, result: data as OutputConfig } : turn,
+                  ),
+                }
+              : c,
           ),
         );
         notify('已用修改后的 SQL 重新执行');
@@ -221,36 +350,74 @@ export default function Home() {
     if (!question || busyRef.current) return;
     busyRef.current = true;
 
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setTurns((prev) => [
-      ...prev,
-      {
-        id,
-        question,
-        stream: '',
-        result: null,
-        error: null,
-        status: 'streaming',
-        startedAt: Date.now(),
-      },
-    ]);
+    const now = Date.now();
+    const turnId = newId('turn');
+    const newTurn: Turn = {
+      id: turnId,
+      question,
+      stream: '',
+      result: null,
+      error: null,
+      status: 'streaming',
+      startedAt: now,
+    };
+
+    // 目标会话：有激活会话就追加，否则新建一个
+    const convId = activeIdRef.current;
+    const existing = convId ? conversationsRef.current.find((c) => c.id === convId) : undefined;
+    const targetId: string = existing ? (convId as string) : newId('conv');
+
+    setConversations((prev) => {
+      if (existing) {
+        return prev.map((c) =>
+          c.id === targetId
+            ? {
+                ...c,
+                turns: [...c.turns, newTurn],
+                title: c.title === '新对话' || !c.title ? deriveTitle(question) : c.title,
+                updatedAt: now,
+              }
+            : c,
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: targetId,
+          title: deriveTitle(question),
+          turns: [newTurn],
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+    });
+    setActiveId(targetId);
     setInput('');
     setTab('overview');
     setPanelOpen(false);
     setMobileNavOpen(false);
 
     const patch = (updater: (turn: Turn) => Turn) =>
-      setTurns((prev) => prev.map((turn) => (turn.id === id ? updater(turn) : turn)));
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === targetId
+            ? {
+                ...c,
+                updatedAt: Date.now(),
+                turns: c.turns.map((turn) => (turn.id === turnId ? updater(turn) : turn)),
+              }
+            : c,
+        ),
+      );
 
     // P2-2：带上最近 2 轮（问题 + 结论摘要）作为多轮上下文，让「那上个月呢」这类指代能被解析。
-    const history: ChatMessage[] = turnsRef.current
-      .slice(-2)
-      .flatMap((turn) => {
-        const msgs: ChatMessage[] = [{ role: 'user', content: turn.question }];
-        const answer = turn.result?.summary?.trim();
-        if (answer) msgs.push({ role: 'assistant', content: answer.slice(0, 300) });
-        return msgs;
-      });
+    const prevTurns = conversationsRef.current.find((c) => c.id === targetId)?.turns ?? [];
+    const history: ChatMessage[] = prevTurns.slice(-2).flatMap((turn) => {
+      const msgs: ChatMessage[] = [{ role: 'user', content: turn.question }];
+      const answer = turn.result?.summary?.trim();
+      if (answer) msgs.push({ role: 'assistant', content: answer.slice(0, 300) });
+      return msgs;
+    });
 
     try {
       const response = await fetch('/api/chat', {
@@ -332,11 +499,20 @@ export default function Home() {
     }
   }, []);
 
+  const conversationItems = useMemo(
+    () => conversations.map((c) => ({ id: c.id, title: c.title })),
+    [conversations],
+  );
+
   return (
     <div className="flex h-full overflow-hidden bg-canvas">
       <Sidebar
-        history={historyItems}
-        activeId={latestTurn?.id ?? null}
+        conversations={conversationItems}
+        activeId={activeId}
+        onNewChat={handleNewChat}
+        onSelect={handleSelect}
+        onDelete={handleDelete}
+        onRename={handleRename}
         onUnavailable={showUnavailable}
         collapsed={sidebarCollapsed}
         onToggle={toggleSidebar}
@@ -354,6 +530,7 @@ export default function Home() {
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
           onOpenNav={() => setMobileNavOpen(true)}
+          conversationTitle={activeConv?.title ?? '新对话'}
         />
 
         <div className="flex min-h-0 flex-1">

@@ -156,6 +156,22 @@ export const IconClose = (p: P) => (
   </S>
 );
 
+export const IconTrash = (p: P) => (
+  <S {...p}>
+    <path d="M4 7h16" />
+    <path d="M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2" />
+    <path d="M6.5 7l1 12.5a1.5 1.5 0 0 0 1.5 1.4h5a1.5 1.5 0 0 0 1.5-1.4l1-12.5" />
+    <path d="M10 11v6M14 11v6" />
+  </S>
+);
+
+export const IconEdit = (p: P) => (
+  <S {...p}>
+    <path d="M4 20h4L18.5 9.5a2 2 0 0 0-2.8-2.8L5.2 17.2V20z" />
+    <path d="M13.5 7.5l2.8-2.8a2 2 0 0 1 2.8 2.8l-2.8 2.8" />
+  </S>
+);
+
 export const IconAlert = (p: P) => (
   <S {...p}>
     <circle cx="12" cy="12" r="8.6" />

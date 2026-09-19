@@ -39,6 +39,15 @@ export type Turn = {
   startedAt: number;
 };
 
+/** 一个会话（多条问答的集合，可独立新建 / 切换 / 删除 / 重命名） */
+export type Conversation = {
+  id: string;
+  title: string;
+  turns: Turn[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type ResultTab = 'overview' | 'sql' | 'table' | 'chart';
 
 export type TableColumn = { field: string; label: string };

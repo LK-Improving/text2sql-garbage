@@ -19,6 +19,7 @@ export function TopBar({
   sidebarCollapsed = false,
   onToggleSidebar,
   onOpenNav,
+  conversationTitle = '新对话',
 }: {
   loading: boolean;
   hasResult: boolean;
@@ -27,6 +28,7 @@ export function TopBar({
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onOpenNav?: () => void;
+  conversationTitle?: string;
 }) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-surface/85 px-3 backdrop-blur-md lg:px-6">
@@ -58,7 +60,7 @@ export function TopBar({
           <IconLayers className="h-4 w-4 shrink-0 text-brand-500" />
           <span className="font-medium text-ink-800">智能问数</span>
           <span className="text-ink-300">/</span>
-          <span className="truncate text-ink-500">新建对话</span>
+          <span className="truncate text-ink-500">{conversationTitle}</span>
           {loading && (
             <span className="ml-1 inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2 py-0.5 text-[11.5px] font-medium text-brand-600">
               <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-brand-500" />

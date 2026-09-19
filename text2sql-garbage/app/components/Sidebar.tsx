@@ -1,21 +1,21 @@
 'use client';
 
-import { useEffect, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import {
   IconBoard,
   IconClose,
   IconDatabase,
-  IconHistory,
+  IconEdit,
   IconLogo,
   IconMenu,
   IconPlus,
   IconSidebarCollapse,
   IconStar,
+  IconTrash,
 } from './icons';
 import type { UnavailableHandler } from './types';
 
 const NAV_ITEMS = [
-  { label: '对话记录', Icon: IconHistory },
   { label: '我的收藏', Icon: IconStar },
   { label: '数据看板', Icon: IconBoard },
   { label: '数据源管理', Icon: IconDatabase },
@@ -25,8 +25,12 @@ const NAV_ITEMS = [
 export const SIDEBAR_WIDTH = 236;
 
 export function Sidebar({
-  history,
+  conversations,
   activeId,
+  onNewChat,
+  onSelect,
+  onDelete,
+  onRename,
   onUnavailable,
   collapsed = false,
   onToggle,
@@ -34,8 +38,12 @@ export function Sidebar({
   mobileOpen = false,
   onMobileClose,
 }: {
-  history: { id: string; question: string }[];
+  conversations: { id: string; title: string }[];
   activeId: string | null;
+  onNewChat: () => void;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  onRename: (id: string, title: string) => void;
   onUnavailable: UnavailableHandler;
   collapsed?: boolean;
   onToggle?: () => void;
@@ -44,10 +52,22 @@ export function Sidebar({
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }) {
-  /** 移动端点击任意条目：先关抽屉，再走原有「暂未开放」提示 */
+  /** 移动端点击任意条目：先关抽屉，再走原有回调 */
   const handleMobileItem = (feature: string) => {
     onMobileClose?.();
     onUnavailable(feature);
+  };
+  const handleMobileSelect = (id: string) => {
+    onSelect(id);
+    onMobileClose?.();
+  };
+  const handleMobileNew = () => {
+    onNewChat();
+    onMobileClose?.();
+  };
+  const handleMobileDelete = (id: string) => {
+    onDelete(id);
+    onMobileClose?.();
   };
 
   // Esc 关闭抽屉；视口变宽到桌面断点时也自动收起，避免状态残留
@@ -79,8 +99,12 @@ export function Sidebar({
         aria-hidden={collapsed}
       >
         <SidebarBody
-          history={history}
+          conversations={conversations}
           activeId={activeId}
+          onNewChat={onNewChat}
+          onSelect={onSelect}
+          onDelete={onDelete}
+          onRename={onRename}
           onUnavailable={onUnavailable}
           onToggle={onToggle}
         />
@@ -118,8 +142,12 @@ export function Sidebar({
         }`}
       >
         <SidebarBody
-          history={history}
+          conversations={conversations}
           activeId={activeId}
+          onNewChat={handleMobileNew}
+          onSelect={handleMobileSelect}
+          onDelete={handleMobileDelete}
+          onRename={onRename}
           onUnavailable={handleMobileItem}
           onClose={onMobileClose}
         />
@@ -130,18 +158,39 @@ export function Sidebar({
 
 /** 侧栏内容（桌面静态版与移动抽屉版共用） */
 function SidebarBody({
-  history,
+  conversations,
   activeId,
+  onNewChat,
+  onSelect,
+  onDelete,
+  onRename,
   onUnavailable,
   onToggle,
   onClose,
 }: {
-  history: { id: string; question: string }[];
+  conversations: { id: string; title: string }[];
   activeId: string | null;
+  onNewChat: () => void;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  onRename: (id: string, title: string) => void;
   onUnavailable: UnavailableHandler;
   onToggle?: () => void;
   onClose?: () => void;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+
+  const startRename = (id: string, title: string) => {
+    setEditingId(id);
+    setEditingValue(title);
+  };
+  const commitRename = () => {
+    if (editingId) onRename(editingId, editingValue);
+    setEditingId(null);
+    setEditingValue('');
+  };
+
   return (
     <div className="flex h-full w-full flex-col bg-surface">
       {/* 品牌 */}
@@ -183,7 +232,7 @@ function SidebarBody({
       <div className="px-3">
         <button
           type="button"
-          onClick={() => onUnavailable('新建对话')}
+          onClick={onNewChat}
           className="group flex w-full items-center justify-center gap-2 rounded-[10px] bg-linear-to-b from-brand-500 to-brand-600 px-3 py-2.5 text-[13.5px] font-medium text-white shadow-brand transition-all hover:from-brand-400 hover:to-brand-600 active:translate-y-px"
         >
           <IconPlus className="h-4 w-4 transition-transform group-hover:rotate-90" />
@@ -209,39 +258,80 @@ function SidebarBody({
         </ul>
       </nav>
 
-      {/* 历史对话 */}
+      {/* 会话列表 */}
       <div className="scroll-thin mt-5 flex-1 overflow-y-auto px-2 pb-3">
         <div className="px-2.5 pb-1.5 text-[11px] font-semibold tracking-wider text-ink-400">
-          历史对话
+          对话记录
         </div>
 
-        {history.length === 0 ? (
+        {conversations.length === 0 ? (
           <p className="px-2.5 py-2 text-[12px] leading-relaxed text-ink-300">
-            还没有对话记录，试试右侧的问题示例吧
+            还没有对话记录，点击「新建对话」开始吧
           </p>
         ) : (
           <ul className="space-y-0.5">
-            {history.map((item) => {
+            {conversations.map((item) => {
               const active = item.id === activeId;
+              const editing = editingId === item.id;
               return (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => onUnavailable('查看历史对话')}
-                    title={item.question}
-                    className={`flex w-full items-center gap-2 rounded-[9px] px-2.5 py-2 text-left text-[13px] transition-colors ${
-                      active
-                        ? 'bg-brand-50 font-medium text-brand-700'
-                        : 'text-ink-600 hover:bg-canvas hover:text-ink-900'
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                        active ? 'bg-brand-500' : 'bg-ink-300'
-                      }`}
+                <li key={item.id} className="group relative">
+                  {editing ? (
+                    <input
+                      autoFocus
+                      value={editingValue}
+                      onChange={(e) => setEditingValue(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRename();
+                        if (e.key === 'Escape') {
+                          setEditingId(null);
+                          setEditingValue('');
+                        }
+                      }}
+                      className="w-full rounded-[9px] border border-brand-300 bg-surface px-2.5 py-2 text-[13px] text-ink-900 outline-none"
                     />
-                    <span className="truncate">{item.question}</span>
-                  </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onSelect(item.id)}
+                        title={item.title}
+                        className={`flex w-full items-center gap-2 rounded-[9px] py-2 pr-9 pl-2.5 text-left text-[13px] transition-colors ${
+                          active
+                            ? 'bg-brand-50 font-medium text-brand-700'
+                            : 'text-ink-600 hover:bg-canvas hover:text-ink-900'
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                            active ? 'bg-brand-500' : 'bg-ink-300'
+                          }`}
+                        />
+                        <span className="truncate">{item.title}</span>
+                      </button>
+
+                      <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => startRename(item.id, item.title)}
+                          aria-label="重命名"
+                          title="重命名"
+                          className="rounded-md p-1 text-ink-400 transition-colors hover:bg-canvas hover:text-brand-600"
+                        >
+                          <IconEdit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(item.id)}
+                          aria-label="删除"
+                          title="删除对话"
+                          className="rounded-md p-1 text-ink-400 transition-colors hover:bg-canvas hover:text-rose-500"
+                        >
+                          <IconTrash className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </li>
               );
             })}
