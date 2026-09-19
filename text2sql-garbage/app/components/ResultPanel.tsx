@@ -21,6 +21,7 @@ import {
   IconLoader,
   IconRefresh,
   IconSpark,
+  IconStar,
   IconTable,
 } from './icons';
 import type {
@@ -65,6 +66,8 @@ export function ResultPanel({
   onDoubleClickResize,
   onRerun,
   rerunning = false,
+  isFavorited = false,
+  onToggleFavorite,
 }: {
   result: OutputConfig | null;
   loading: boolean;
@@ -84,6 +87,10 @@ export function ResultPanel({
   /** 编辑 SQL 后重新执行（由父组件实现，调 /api/execute） */
   onRerun?: (sql: string) => void | Promise<void>;
   rerunning?: boolean;
+  /** 当前结果是否已被收藏 */
+  isFavorited?: boolean;
+  /** 收藏 / 取消收藏当前结果 */
+  onToggleFavorite?: () => void;
 }) {
   const table = getTable(result);
   const points = getChartPoints(result);
@@ -255,6 +262,23 @@ export function ResultPanel({
               );
             })}
           </div>
+
+          {result && (
+            <button
+              type="button"
+              onClick={() => onToggleFavorite?.()}
+              aria-label={isFavorited ? '取消收藏' : '收藏结果'}
+              aria-pressed={isFavorited}
+              title={isFavorited ? '取消收藏' : '收藏此结果'}
+              className={`shrink-0 rounded-lg p-1.5 transition-colors ${
+                isFavorited
+                  ? 'text-amber-500 hover:bg-canvas'
+                  : 'text-ink-400 hover:bg-canvas hover:text-amber-500'
+              }`}
+            >
+              <IconStar className={`h-[17px] w-[17px] ${isFavorited ? 'fill-amber-400' : ''}`} />
+            </button>
+          )}
 
           <button
             type="button"

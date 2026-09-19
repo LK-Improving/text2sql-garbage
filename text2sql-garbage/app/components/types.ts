@@ -48,6 +48,20 @@ export type Conversation = {
   updatedAt: number;
 };
 
+/** 用户对某条回答的评价（点赞 / 点踩），按 turnId 记录 */
+export type RatingValue = 'up' | 'down';
+
+/** 单条结果的收藏项（Phase 1 仅本地存储；Phase 2 接入云端后可用于跨端查看与跳回原会话） */
+export type FavoriteItem = {
+  id: string;
+  turnId: string;
+  conversationId: string;
+  title: string;
+  sql: string;
+  summary: string;
+  createdAt: number;
+};
+
 export type ResultTab = 'overview' | 'sql' | 'table' | 'chart';
 
 export type TableColumn = { field: string; label: string };

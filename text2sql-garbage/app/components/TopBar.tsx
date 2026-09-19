@@ -16,6 +16,7 @@ export function TopBar({
   hasResult,
   onUnavailable,
   onOpenPanel,
+  onOpenHelp,
   sidebarCollapsed = false,
   onToggleSidebar,
   onOpenNav,
@@ -25,6 +26,7 @@ export function TopBar({
   hasResult: boolean;
   onUnavailable: UnavailableHandler;
   onOpenPanel: () => void;
+  onOpenHelp?: () => void;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onOpenNav?: () => void;
@@ -94,8 +96,9 @@ export function TopBar({
 
         <button
           type="button"
-          onClick={() => onUnavailable('帮助中心')}
+          onClick={() => onOpenHelp?.()}
           aria-label="帮助"
+          title="帮助中心"
           className="rounded-lg p-2 text-ink-400 transition-colors hover:bg-canvas hover:text-ink-700"
         >
           <IconHelp className="h-[17px] w-[17px]" />

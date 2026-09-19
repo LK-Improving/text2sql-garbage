@@ -17,7 +17,7 @@ import {
   IconThumbUp,
 } from './icons';
 import { getAnswer } from './derive';
-import type { Turn, UnavailableHandler } from './types';
+import type { RatingValue, Turn, UnavailableHandler } from './types';
 
 const FAQ_QUESTIONS = [
   '最近7天的垃圾清运量是多少？',
@@ -34,6 +34,8 @@ export function ChatPanel({
   onInputChange,
   onAsk,
   onUnavailable,
+  ratings,
+  onRate,
   loading,
 }: {
   turns: Turn[];
@@ -41,6 +43,8 @@ export function ChatPanel({
   onInputChange: (value: string) => void;
   onAsk: (question: string) => void;
   onUnavailable: UnavailableHandler;
+  ratings?: Record<string, RatingValue>;
+  onRate?: (turnId: string, value: RatingValue) => void;
   loading: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -85,6 +89,8 @@ export function ChatPanel({
                 isLatest={index === turns.length - 1}
                 onAsk={onAsk}
                 onUnavailable={onUnavailable}
+                ratings={ratings}
+                onRate={onRate}
               />
             ))}
           </div>
@@ -166,11 +172,15 @@ function TurnBlock({
   isLatest,
   onAsk,
   onUnavailable,
+  ratings,
+  onRate,
 }: {
   turn: Turn;
   isLatest: boolean;
   onAsk: (question: string) => void;
   onUnavailable: UnavailableHandler;
+  ratings?: Record<string, RatingValue>;
+  onRate?: (turnId: string, value: RatingValue) => void;
 }) {
   const answer = getAnswer(turn.result);
 
@@ -206,17 +216,29 @@ function TurnBlock({
               <div className="flex items-center gap-1 pt-0.5">
                 <button
                   type="button"
-                  onClick={() => onUnavailable('评价回答')}
+                  onClick={() => onRate?.(turn.id, 'up')}
                   aria-label="有帮助"
-                  className="rounded-lg p-1.5 text-ink-400 transition-colors hover:bg-canvas hover:text-mint-500"
+                  aria-pressed={ratings?.[turn.id] === 'up'}
+                  title="有帮助"
+                  className={`rounded-lg p-1.5 transition-colors ${
+                    ratings?.[turn.id] === 'up'
+                      ? 'bg-mint-500/10 text-mint-500'
+                      : 'text-ink-400 hover:bg-canvas hover:text-mint-500'
+                  }`}
                 >
                   <IconThumbUp className="h-[17px] w-[17px]" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => onUnavailable('评价回答')}
+                  onClick={() => onRate?.(turn.id, 'down')}
                   aria-label="没帮助"
-                  className="rounded-lg p-1.5 text-ink-400 transition-colors hover:bg-canvas hover:text-rose-500"
+                  aria-pressed={ratings?.[turn.id] === 'down'}
+                  title="没帮助"
+                  className={`rounded-lg p-1.5 transition-colors ${
+                    ratings?.[turn.id] === 'down'
+                      ? 'bg-rose-500/10 text-rose-500'
+                      : 'text-ink-400 hover:bg-canvas hover:text-rose-500'
+                  }`}
                 >
                   <IconThumbDown className="h-[17px] w-[17px]" />
                 </button>

@@ -12,8 +12,17 @@ import {
 import { Sidebar } from './components/Sidebar';
 import { Toast } from './components/Toast';
 import { TopBar } from './components/TopBar';
+import { HelpModal } from './components/HelpModal';
 import { classifyError } from '@/lib/error-hints';
-import type { ChatMessage, Conversation, OutputConfig, ResultTab, Turn } from './components/types';
+import type {
+  ChatMessage,
+  Conversation,
+  FavoriteItem,
+  OutputConfig,
+  RatingValue,
+  ResultTab,
+  Turn,
+} from './components/types';
 
 const FALLBACK_ERROR = '请求失败，请检查网络或稍后重试。';
 
@@ -24,6 +33,9 @@ const PANEL_DISMISSED_KEY = 't2s.panelDismissed';
 /** 会话数据持久化 key */
 const CONV_KEY = 't2s.conversations';
 const ACTIVE_KEY = 't2s.activeId';
+/** 评价与收藏持久化 key */
+const RATING_KEY = 't2s.ratings';
+const FAV_KEY = 't2s.favorites';
 
 /** 面板拉到最宽时，给中间对话区保留的最小宽度 */
 const CHAT_MIN_WIDTH = 460;
@@ -68,6 +80,12 @@ export default function Home() {
   const [panelDismissed, setPanelDismissed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [rerunning, setRerunning] = useState(false);
+  /** 评价回答：turnId → 'up' | 'down' */
+  const [ratings, setRatings] = useState<Record<string, RatingValue>>({});
+  /** 收藏的单条结果（Phase 1 仅本地） */
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  /** 帮助中心弹层开关 */
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const busyRef = useRef(false);
   /** 供 ask / handleRerun 读取最新状态，避免 useCallback 陈旧闭包 */
@@ -168,6 +186,30 @@ export default function Home() {
     setActiveId(conversations.length ? conversations[0].id : null);
   }, [conversations, activeId]);
 
+  // 首次挂载：恢复评价 / 收藏（放 effect 里避免 SSR/CSR 不一致）
+  useEffect(() => {
+    try {
+      const rawR = window.localStorage.getItem(RATING_KEY);
+      if (rawR) {
+        const parsed = JSON.parse(rawR) as Record<string, RatingValue>;
+        if (parsed && typeof parsed === 'object') setRatings(parsed);
+      }
+    } catch {
+      /* 解析失败忽略 */
+    }
+    try {
+      const rawF = window.localStorage.getItem(FAV_KEY);
+      if (rawF) {
+        const parsed = JSON.parse(rawF) as FavoriteItem[];
+        if (Array.isArray(parsed)) setFavorites(parsed);
+      }
+    } catch {
+      /* 解析失败忽略 */
+    }
+    // 只在挂载时跑一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 会话数据落盘（防抖，避免流式输出期间高频写入）
   const saveTimer = useRef<number | null>(null);
   useEffect(() => {
@@ -191,6 +233,22 @@ export default function Home() {
       /* 忽略 */
     }
   }, [activeId]);
+
+  // 评价 / 收藏落盘（数据量小，直接写，无需防抖）
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RATING_KEY, JSON.stringify(ratings));
+    } catch {
+      /* 忽略 */
+    }
+  }, [ratings]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FAV_KEY, JSON.stringify(favorites));
+    } catch {
+      /* 忽略 */
+    }
+  }, [favorites]);
 
   // 首次挂载：恢复上次的布局偏好（放 effect 里避免 SSR/CSR 不一致）
   useEffect(() => {
@@ -264,6 +322,67 @@ export default function Home() {
       prev.map((c) => (c.id === id ? { ...c, title: t, updatedAt: Date.now() } : c)),
     );
   }, []);
+
+  /** 评价回答：切换式（再点同方向即取消）；best-effort 上报服务端日志 */
+  const handleRate = useCallback(
+    (turnId: string, value: RatingValue) => {
+      setRatings((prev) => {
+        const next = { ...prev };
+        if (next[turnId] === value) delete next[turnId];
+        else next[turnId] = value;
+        // 服务端信号（不阻塞 UI，失败静默）
+        try {
+          fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              turnId,
+              conversationId: activeIdRef.current,
+              value: next[turnId] ?? null,
+            }),
+          }).catch(() => {});
+        } catch {
+          /* 忽略 */
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  /** 收藏 / 取消收藏当前结果（绑定在最新一轮） */
+  const handleToggleFavorite = useCallback(() => {
+    const turn = latestTurn;
+    const convId = activeIdRef.current;
+    const result = turn?.result ?? null;
+    if (!turn || !convId || !result) {
+      notify('当前没有可收藏的结果');
+      return;
+    }
+    const fid = `fav-${turn.id}`;
+    const turnId = turn.id;
+    const title = result.title || '查询结果';
+    const sql = result.sql || '';
+    const summary = result.summary || '';
+    setFavorites((prev) => {
+      const exists = prev.some((f) => f.turnId === turnId);
+      if (exists) {
+        notify('已取消收藏');
+        return prev.filter((f) => f.turnId !== turnId);
+      }
+      notify('已收藏到「我的收藏」');
+      const item: FavoriteItem = {
+        id: fid,
+        turnId,
+        conversationId: convId,
+        title,
+        sql,
+        summary,
+        createdAt: Date.now(),
+      };
+      return [item, ...prev];
+    });
+  }, [latestTurn, notify]);
 
   /** 结果面板「重新执行」：把编辑后的 SQL 交给 /api/execute（走校验但不过大模型） */
   const handleRerun = useCallback(
@@ -530,6 +649,7 @@ export default function Home() {
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
           onOpenNav={() => setMobileNavOpen(true)}
+          onOpenHelp={() => setHelpOpen(true)}
           conversationTitle={activeConv?.title ?? '新对话'}
         />
 
@@ -540,6 +660,8 @@ export default function Home() {
             onInputChange={setInput}
             onAsk={ask}
             onUnavailable={showUnavailable}
+            ratings={ratings}
+            onRate={handleRate}
             loading={loading}
           />
 
@@ -558,11 +680,15 @@ export default function Home() {
             onDoubleClickResize={() => setPanelWidth(clampPanelWidth(DEFAULT_PANEL_WIDTH))}
             onRerun={handleRerun}
             rerunning={rerunning}
+            isFavorited={favorites.some((f) => f.turnId === latestTurn?.id)}
+            onToggleFavorite={handleToggleFavorite}
           />
         </div>
       </div>
 
       <Toast message={toast?.text ?? null} onClose={() => setToast(null)} />
+
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   );
 }
