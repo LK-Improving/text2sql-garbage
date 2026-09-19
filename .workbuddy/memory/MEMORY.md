@@ -15,6 +15,9 @@
   云库 **Supabase（PostgreSQL）**，连接串用 Transaction pooler（`?sslmode=require&pgbouncer=true`，`pg` 原生支持）。
   原 Vercel+Neon 方案已弃。灌云库走 GitHub Actions `db-setup.yml`（全量 checkout 跑 `seed:db`，绕开子目录路径坑），
   不依赖 Netlify 构建。外部凭证（`NETLIFY_*` / `HOSTED_DATABASE_URL` / Netlify Env）由用户设置，不代劳。
+- **部署分支模型（2026-09-19 用户决策）**：Netlify Production branch = **`main`**；日常开发在 **`master`**，
+  发版时把 `master` 合并进 `main` 并 `git push origin main` 才触发构建（自动部署保持开启，但用分支闸门控制时机，省构建分钟）。
+  GitHub 默认分支仍为 `master`（`gh workflow run` 派发 `master` 上的 `workflow_dispatch`）。
 
 ## 关键约定（务必遵守）
 1. **表结构单一数据源 = `lib/schema.ts`**。历史上 `lib/schema.ts` 与 `lib/table-metadata.ts`

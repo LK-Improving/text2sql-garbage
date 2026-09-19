@@ -1,0 +1,16 @@
+---
+description: "text2sql-garbage React/Next 客户端工作台、Monaco、图表与SSE消费规则"
+globs: "text2sql-garbage/app/**/*.tsx,text2sql-garbage/app/**/*.css,text2sql-garbage/app/components/**,text2sql-garbage/app/page.tsx"
+alwaysApply: false
+---
+
+# React 前端规则
+
+在修改客户端组件、页面、Monaco、ECharts、Tailwind 样式或 SSE 消费逻辑时读取。
+
+- 沿用 React 19、Next 16 App Router 和 TailwindCSS 4；按现有 `'use client'` 边界组织交互。
+- 页面/组件负责展示和交互，SSE 解析、请求错误归一和服务端数据库/模型逻辑留在既有边界；不得在浏览器直连 PostgreSQL、模型或使用服务端 secret。
+- 对话、SQL 执行、导出和结果展示覆盖加载、空态、部分流、完成、错误、取消/断开和重复提交；图表字段必须来自真实返回结果。
+- Monaco 编辑 SQL 后重新执行仍需走 `/api/execute`，不能绕过统一安全校验。
+
+验证：在 `text2sql-garbage/` 运行 `pnpm typecheck`，必要时运行 `pnpm test`。

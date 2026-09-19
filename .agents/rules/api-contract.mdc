@@ -1,0 +1,15 @@
+---
+description: "text2sql-garbage Chat SSE、SQL执行、Excel导出与数据schema契约规则"
+globs: "text2sql-garbage/app/api/**,text2sql-garbage/app/components/**,text2sql-garbage/lib/**,test-data/**,.agents/Documents/接口设计/**"
+alwaysApply: false
+---
+
+# API 与数据契约规则
+
+- 当前无 OpenAPI；契约来源按 Route Handler、共享类型/校验代码、README/需求文档和评测集整理，输出到 `.agents/Documents/接口设计/`。
+- `/api/chat` 必须定义请求字段、历史上下文、SSE 事件名/顺序/数据、完成、错误、断开和重复提交；客户端不得假设未记录的事件。
+- `/api/execute` 定义 SQL 编辑、校验拒绝、空结果、数据库错误和成功结果；`/api/export-excel` 定义内容类型、文件名、空数据和失败响应。
+- schema 契约以 `test-data/schema.sql` 与 `lib/schema.ts` 的差异检查为门禁，字段标签、白名单、提示词和评测必须同步。
+- 不在契约、审计示例或评测结果中写 API key、DATABASE_URL、真实用户数据或生产连接信息。
+
+验证：`pnpm typecheck`、`pnpm test`、`pnpm check:schema`；影响流式行为时做实际 SSE 接口检查。

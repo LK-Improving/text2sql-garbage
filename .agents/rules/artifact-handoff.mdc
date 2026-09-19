@@ -1,0 +1,12 @@
+---
+description: "text2sql-garbage需求、SSE/SQL契约、UI、Next实现与评测验收产物交接规则"
+globs: ".agents/Documents/需求分析/**,.agents/Documents/接口设计/**,.agents/Documents/UI设计/**,.agents/Documents/联调验收/**,text2sql-garbage/app/**,text2sql-garbage/lib/**,test-data/**"
+alwaysApply: false
+---
+
+# 产物交接规则
+
+- 需求放 `.agents/Documents/需求分析/`，SSE/HTTP/SQL/schema 契约放 `.agents/Documents/接口设计/`，工作台 UI 规格放 `.agents/Documents/UI设计/`，联调/评测报告放 `.agents/Documents/联调验收/`。
+- 需求 → 契约 → UI → Next 页面/Route Handler → 评测验收按文件路径交接；契约未确认时不猜 SSE 字段、SQL 口径或错误文案。
+- 交接覆盖加载、部分流、完成、错误、断开、取消、空结果、重复提交、安全拒绝、导出和 schema 漂移。
+- 评测报告只记录实际数据、模型配置脱敏后的环境、命令和结果；未跑真实模型或数据库的项标记未验证。

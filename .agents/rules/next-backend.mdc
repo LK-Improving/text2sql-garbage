@@ -1,0 +1,17 @@
+---
+description: "text2sql-garbage Next.js Route Handler、LangChain、PostgreSQL与安全边界规则"
+globs: "text2sql-garbage/app/api/**,text2sql-garbage/lib/**,text2sql-garbage/next.config.ts,text2sql-garbage/scripts/**,test-data/**"
+alwaysApply: false
+---
+
+# Next.js 服务端交付规则
+
+在修改 Route Handler、服务端组件、LangChain 编排、SQL 校验、数据库、导出、评测脚本或环境变量时读取。
+
+- Route Handler 负责协议、输入校验、SSE/文件响应和调用编排；复杂提示词、schema 检索、安全校验、结果构建、数据库和审计沿用 `lib/` 分层。
+- 所有模型产出的 SQL 和用户编辑 SQL 都必须经过既有 SecurityValidator、表白名单、注释/字面量剥离和 LIMIT 约束；拒绝写操作、危险函数、越权表和超限查询。
+- 服务端凭据只能读取运行时环境变量；不得进入客户端 bundle、日志、评测产物或治理文档。审计和错误输出需脱敏。
+- `POST /api/chat` 的流式生命周期明确事件顺序、完成、错误、断连；`/api/execute` 和导出复用同一安全与错误口径。
+- schema/seed/应用 schema 变更同步提示词、白名单、评测和 `check:schema`。
+
+验证：`pnpm typecheck`、`pnpm test`；schema 改动 `pnpm check:schema`；必要时 `pnpm eval:gate`。
