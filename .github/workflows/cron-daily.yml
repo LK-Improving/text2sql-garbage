@@ -37,7 +37,7 @@ jobs:
           version: 9
 
       - name: Setup Node
-        uses: setup-node@v4
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
@@ -56,4 +56,16 @@ jobs:
       - name: Generate daily data
         if: ${{ env.DATABASE_URL != '' }}
         working-directory: text2sql-garbage
-        run: node scripts/gen-daily.mjs ${{ github.event.inputs.args }}
+        env:
+          # 入参必须经 env 传递：直接把 ${{ github.event.inputs.args }} 拼进命令行
+          # 是 GitHub 官方点名的注入 sink（本 job 带着 HOSTED_DATABASE_URL，等于任意执行）。
+          INPUT_ARGS: ${{ github.event.inputs.args }}
+        run: |
+          # 入参只允许日期/参数名字符集（含 ; ` $ ( ) | & 等一律拒绝）。
+          # 注意：这里用 grep 而不是 case 模式——case 的模式串不能含未转义空格（会被 word 边界截断导致语法错误）。
+          if ! printf '%s' "$INPUT_ARGS" | grep -qE '^[0-9A-Za-z_.:/= -]*$'; then
+            echo "::error::非法参数字符（仅允许字母、数字与 _ . : = / 空格）"
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          node scripts/gen-daily.mjs $INPUT_ARGS
