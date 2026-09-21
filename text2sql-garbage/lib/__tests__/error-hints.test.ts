@@ -14,6 +14,15 @@ describe('classifyError', () => {
     expect(classifyError('禁止的操作：DROP').category).toBe('permission');
   });
 
+  // 回归：validator 的原文是「仅允许 SELECT 查询（支持 WITH ... SELECT）」，
+  // 旧正则写死小写导致匹配不上，DELETE 会被显示成「执行失败」。
+  it('安全拦截（非 SELECT）→ permission', () => {
+    const hint = classifyError('仅允许 SELECT 查询（支持 WITH ... SELECT）');
+    expect(hint.category).toBe('permission');
+    expect(hint.label).toBe('安全拦截');
+    expect(hint.message).not.toContain('SQL 执行失败');
+  });
+
   it('白名单外表 → table', () => {
     expect(classifyError('不允许访问的表：t_secret').category).toBe('table');
   });

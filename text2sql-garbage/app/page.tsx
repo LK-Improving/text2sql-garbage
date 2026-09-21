@@ -80,6 +80,14 @@ export default function Home() {
   const [panelDismissed, setPanelDismissed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [rerunning, setRerunning] = useState(false);
+  /** 限流状态（前端「今日剩余 N 次」提示）：enabled 为 false 表示本地/未启用，无次数上限 */
+  const [rateLimit, setRateLimit] = useState<{
+    enabled: boolean;
+    used: number;
+    limit: number;
+    remaining: number;
+    resetAt: string | null;
+  } | null>(null);
   /** 评价回答：turnId → 'up' | 'down' */
   const [ratings, setRatings] = useState<Record<string, RatingValue>>({});
   /** 收藏的单条结果（Phase 1 仅本地） */
@@ -284,6 +292,29 @@ export default function Home() {
     setToast({ key: Date.now(), text: message });
   }, []);
 
+  /** 拉取限流状态（今日剩余次数），用于顶栏提示；失败静默降级 */
+  const fetchRateLimit = useCallback(async () => {
+    try {
+      const res = await fetch('/api/rate-limit', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setRateLimit({
+        enabled: Boolean(data.enabled),
+        used: Number(data.used ?? 0),
+        limit: Number(data.limit ?? 0),
+        remaining: Number(data.remaining ?? 0),
+        resetAt: data.resetAt ?? null,
+      });
+    } catch {
+      /* 忽略，保持上次的提示 */
+    }
+  }, []);
+
+  // 首次挂载拉取限流状态（顶栏「今日剩余 N 次」提示）
+  useEffect(() => {
+    fetchRateLimit();
+  }, [fetchRateLimit]);
+
   /** 新建一个空会话并切换过去 */
   const handleNewChat = useCallback(() => {
     const id = newId('conv');
@@ -417,6 +448,7 @@ export default function Home() {
                       turn.id === targetTurnId
                         ? {
                             ...turn,
+                            rerunAt: Date.now(),
                             result: {
                               sql: typeof data?.sql === 'string' ? data.sql : sql,
                               title: '自定义查询',
@@ -448,13 +480,23 @@ export default function Home() {
                   ...c,
                   updatedAt: Date.now(),
                   turns: c.turns.map((turn) =>
-                    turn.id === targetTurnId ? { ...turn, result: data as OutputConfig } : turn,
+                    turn.id === targetTurnId
+                      ? { ...turn, rerunAt: Date.now(), result: data as OutputConfig }
+                      : turn,
                   ),
                 }
               : c,
           ),
         );
-        notify('已用修改后的 SQL 重新执行');
+        // 重新执行的目的就是看新数据：自动切到「查询结果」并展开面板，
+        // 否则用户停在 SQL 页签时界面上看不到任何数值变化。
+        setTab('overview');
+        setPanelDismissed(false);
+        notify(
+          data?.summary
+            ? String(data.summary).replace(/\*\*/g, '').replace(/\s+/g, ' ').slice(0, 60)
+            : '已用修改后的 SQL 重新执行',
+        );
       } catch {
         notify('重新执行请求失败，请检查网络');
       } finally {
@@ -547,7 +589,16 @@ export default function Home() {
         }),
       });
 
-      if (!response.ok) throw new Error(`服务返回 ${response.status}`);
+      if (!response.ok) {
+        let msg = `服务返回 ${response.status}`;
+        try {
+          const body = await response.json();
+          if (body?.error) msg = String(body.error);
+        } catch {
+          /* 响应体非 JSON，沿用默认文案 */
+        }
+        throw new Error(msg);
+      }
       if (!response.body) throw new Error('响应中没有可读取的数据流');
 
       const reader = response.body.getReader();
@@ -615,8 +666,10 @@ export default function Home() {
       }));
     } finally {
       busyRef.current = false;
+      // 对话结束（成功或 429）后刷新「今日剩余次数」提示
+      fetchRateLimit();
     }
-  }, []);
+  }, [fetchRateLimit]);
 
   const conversationItems = useMemo(
     () => conversations.map((c) => ({ id: c.id, title: c.title })),
@@ -651,6 +704,7 @@ export default function Home() {
           onOpenNav={() => setMobileNavOpen(true)}
           onOpenHelp={() => setHelpOpen(true)}
           conversationTitle={activeConv?.title ?? '新对话'}
+          rateLimit={rateLimit}
         />
 
         <div className="flex min-h-0 flex-1">

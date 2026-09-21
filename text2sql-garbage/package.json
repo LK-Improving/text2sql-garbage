@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:db": "node scripts/seed-db.mjs",
+    "gen:daily": "node scripts/gen-daily.mjs",
     "eval": "node scripts/run-eval.mjs",
     "eval:gate": "node scripts/check-eval.mjs",
     "prepare": "node scripts/setup-git-hooks.mjs"

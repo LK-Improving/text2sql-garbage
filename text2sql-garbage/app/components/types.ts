@@ -37,6 +37,12 @@ export type Turn = {
   error: string | null;
   status: 'streaming' | 'done' | 'error';
   startedAt: number;
+  /**
+   * 用户编辑 SQL 后重新执行的时间戳（未重新执行则无）。
+   * 用于在思考过程里标注「模型输出是原始生成、数据已被重新执行覆盖」，
+   * 避免用户看到旧的模型输出以为没生效。
+   */
+  rerunAt?: number;
 };
 
 /** 一个会话（多条问答的集合，可独立新建 / 切换 / 删除 / 重命名） */

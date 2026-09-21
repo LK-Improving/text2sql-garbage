@@ -200,6 +200,12 @@ export function validateSQL(sql: string): ValidateResult {
     return { valid: false, error: 'CTE 最终必须是 SELECT 查询' };
   }
 
+  // 3.5) 禁止 SELECT INTO / WITH ... SELECT INTO：它会**创建新表**，属于写操作，
+  // 而上文只拦截了 INSERT/UPDATE/... 这类关键字，漏掉了 SELECT 形式的建表。
+  if (/\binto\b/i.test(withoutTrailing)) {
+    return { valid: false, error: '禁止创建新表（不支持 SELECT INTO）' };
+  }
+
   // 4) 写操作关键字（字符串已剥离，不会误杀）
   const upper = withoutTrailing.toUpperCase();
   for (const keyword of WRITE_KEYWORDS) {
@@ -232,7 +238,8 @@ export function validateSQL(sql: string): ValidateResult {
   }
 
   // 7) 强制 LIMIT：没有就补，超上限就收敛
-  let finalSql = raw.replace(/\s*;+\s*$/, '');
+  //    先剥掉结尾的行注释，否则 `-- 说明` 会把追加的 LIMIT 吞进注释里（LIMIT 失效、可返回全表）。
+  let finalSql = raw.replace(/\s*;+\s*$/, '').replace(/--[^\n]*$/, '').trim();
   const limitMatch = /\bLIMIT\s+(\d+)\b/i.exec(withoutTrailing);
   if (!limitMatch) {
     finalSql += ` LIMIT ${DEFAULT_LIMIT}`;

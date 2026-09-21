@@ -16,8 +16,12 @@ export function isNumericColumn(rows: Record<string, any>[], field: string): boo
     const raw = row[field];
     if (raw === null || raw === undefined || raw === '') continue;
     total += 1;
-    const v = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseFloat(raw) : NaN;
-    if (Number.isFinite(v)) hits += 1;
+    // 严格数值判定：用正则排除日期（'2026-09-12' 经 parseFloat 会得到 2026，误判成数值）、
+    // 带冒号的时间等；否则 date 维度列会被当成度量列，图表 X/Y 轴就选错了。
+    const text = String(raw).trim();
+    const isNum =
+      /^-?[\d,]+(\.\d+)?$/.test(text) && Number.isFinite(Number(text.replace(/,/g, '')));
+    if (isNum) hits += 1;
   }
   return total > 0 && hits / total >= 0.8;
 }
@@ -73,4 +77,48 @@ export function buildResultComponents(dbResult: DbResult): OutputComponent[] {
   if (tableComp) comps.push(tableComp);
   if (echartsComp) comps.push(echartsComp);
   return comps;
+}
+
+/** 数值/文本格式化：数字带千分位，空值统一说「无数据」 */
+function formatValue(raw: any): string {
+  if (raw === null || raw === undefined || raw === '') return '无数据';
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) ? raw.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : String(raw);
+  }
+  const text = String(raw).trim();
+  if (/^-?[\d,]+(\.\d+)?$/.test(text)) {
+    const n = Number(text.replace(/,/g, ''));
+    if (Number.isFinite(n)) return n.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+  }
+  return text;
+}
+
+/**
+ * 把查询结果压成**对话区可见**的一句话摘要。
+ *
+ * 之前 /api/execute 只回「共返回 N 行」，而对话区正文直接取 summary，
+ * 于是「SUM 查最近 30 天」这种单行结果在对话里只显示行数、不显示数值，
+ * 用户会以为「重新执行没生效 / 没给新数据」。这里单行结果直接把字段值摆出来。
+ */
+export function buildRowsSummary(dbResult: DbResult, maxFields = 4): string {
+  const rows = dbResult?.rows ?? [];
+  const fields = dbResult?.fields ?? [];
+  if (!rows.length) return '已重新执行修改后的 SQL，但未返回任何数据。';
+
+  // 单行结果（SUM / COUNT / 单条明细）：把字段值直接摆进摘要
+  if (rows.length === 1 && fields.length) {
+    const shown = fields.slice(0, maxFields);
+    const parts = shown.map((f) => `${humanizeField(f.name)}：**${formatValue(rows[0][f.name])}**`);
+    const more = fields.length > shown.length ? `（另有 ${fields.length - shown.length} 个字段未展开）` : '';
+    return `已重新执行修改后的 SQL，结果：${parts.join('　·　')}${more}`;
+  }
+
+  // 多行结果：给出条数，并用第一行的「类别列 + 数值列」做个预览
+  const numericField = fields.find((f) => isNumericColumn(rows, f.name));
+  const textField = fields.find((f) => f.name !== numericField?.name);
+  const preview =
+    textField && numericField && rows.length > 1
+      ? `，如 ${humanizeField(textField.name)} **${formatValue(rows[0][textField.name])}** 为 **${formatValue(rows[0][numericField.name])}**`
+      : '';
+  return `已重新执行修改后的 SQL，共返回 **${rows.length}** 行${preview}，完整数据见右侧结果面板。`;
 }

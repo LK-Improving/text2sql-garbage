@@ -11,6 +11,16 @@ import { buildResultComponents } from '@/lib/result-builder';
 import { makeCacheKey, getCachedPlan, setCachedPlan } from '@/lib/sql-cache';
 import { formatErrorHint } from '@/lib/error-hints';
 import { SYSTEM_TEMPLATE } from '@/lib/prompts';
+import {
+  consumeDailyQuota,
+  isRateLimitEnabled,
+  type RateLimitStatus,
+} from '@/lib/rate-limit';
+
+/** 输出上下文上限：约束大模型单次返回的 token 数，控制成本与延迟（简历/公网场景防滥用） */
+const MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? '2048');
+/** 输入上下文限制：单条问题最大长度，超出直接拒绝（防超长 prompt 滥用 / 控制 token 成本） */
+const MAX_QUESTION_LEN = Number(process.env.MAX_QUESTION_LEN ?? '1000');
 
 // 后端返回给前端的完整结果结构（与前端 types.ts 中的 OutputConfig 对齐）
 type ComponentType = 'markdown' | 'image' | 'table' | 'echarts' | 'excel_download';
@@ -37,6 +47,7 @@ const llm = new ChatOpenAI({
   temperature: 0,
   streaming: true,
   maxRetries: 2,
+  maxTokens: MAX_TOKENS, // 输出上下文上限
   apiKey,
   configuration: {
     baseURL,
@@ -232,6 +243,52 @@ export async function POST(req: NextRequest) {
         .map((m: any) => ({ role: String(m.role ?? 'user'), content: String(m.content) }))
     : [];
 
+  // ── 输入上下文限制：问题过长直接拒绝（防超长 prompt 滥用 / 控制 token 成本） ──
+  if (userQuestion.length > MAX_QUESTION_LEN) {
+    return new Response(
+      JSON.stringify({
+        error: `问题过长（${userQuestion.length} 字，上限 ${MAX_QUESTION_LEN} 字），请精简后重试`,
+        code: 'INPUT_TOO_LONG',
+      }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  // ── 生产环境「每日大模型调用上限」：只统计真实 LLM 调用；缓存命中的跳过不计配额 ──
+  // 提前算好缓存 key：若命中缓存就不消耗配额（下方 consume 条件 !cached）。
+  const historySignature = history.map((m) => `${m.role}:${m.content}`).join('|');
+  const cacheKey = makeCacheKey(userQuestion, historySignature);
+  const cached = getCachedPlan(cacheKey);
+
+  if (isRateLimitEnabled() && !cached) {
+    let status: RateLimitStatus | null = null;
+    try {
+      status = await consumeDailyQuota();
+    } catch (e) {
+      // 计数失败不阻断业务（降级放行并告警），避免限流表异常时误伤全部用户
+      console.error('[rate-limit] 配额计数失败，降级放行：', e);
+    }
+    if (status && !status.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: `今日大模型调用次数已用完（${status.used}/${status.limit}）。每日 0 点（北京时间）重置，请明天再来。`,
+          code: 'RATE_LIMIT_EXCEEDED',
+          limit: status.limit,
+          used: status.used,
+          resetAt: status.resetAt,
+          retryAfterSec: status.retryAfterSec,
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(status.retryAfterSec),
+          },
+        },
+      );
+    }
+  }
+
   const audit = new AuditCallbackHandler(userQuestion);
 
   const stream = new ReadableStream({
@@ -260,11 +317,7 @@ export async function POST(req: NextRequest) {
         const tableInfoString = `${renderGlobalHints()}\n\n${relevantSchema}`;
 
         // 2. P2-1：先查 SQL 生成缓存。命中即跳过 LLM（链路里最慢的一步），复用上次的计划。
-        //    缓存 key 带上历史签名，避免多轮里同一句话在不同上下文命中错误的 SQL。
-        const historySignature = history.map((m) => `${m.role}:${m.content}`).join('|');
-        const cacheKey = makeCacheKey(userQuestion, historySignature);
-        const cached = getCachedPlan(cacheKey);
-
+        //    缓存 key 已在 POST 入口算好（cacheKey），命中则不消耗每日大模型配额。
         let llmOutput: LlmOutput | null = null;
         let fullText = '';
 

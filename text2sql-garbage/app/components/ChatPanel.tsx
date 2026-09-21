@@ -339,6 +339,15 @@ function ThinkingCard({ turn, isLatest }: { turn: Turn; isLatest: boolean }) {
           )}
         </span>
         <span className="text-[12.5px] font-medium text-ink-700">思考过程</span>
+        {turn.rerunAt && (
+          <span
+            title="模型输出保留首次生成的原貌；右侧结果面板的数据已按你编辑后的 SQL 重新查询"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-50 px-1.5 py-px text-[10.5px] font-medium text-brand-600"
+          >
+            <IconRefresh className="h-2.5 w-2.5" />
+            已重新执行
+          </span>
+        )}
         <span className="ml-auto font-mono text-[11px] text-ink-400 tabular-nums">
           {summary}
         </span>
@@ -396,6 +405,12 @@ function ThinkingCard({ turn, isLatest }: { turn: Turn; isLatest: boolean }) {
                   <span className="ml-0.5 inline-block h-3.5 w-[7px] translate-y-0.5 animate-caret bg-brand-400 align-middle" />
                 )}
               </pre>
+              {turn.rerunAt && !streaming && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
+                  以上是模型<strong className="font-medium text-ink-500">首次生成</strong>的原始输出（含最初的
+                  SQL）。重新执行只重查数据、更新右侧结果面板，不会改写这段内容。
+                </p>
+              )}
             </div>
           )}
         </div>

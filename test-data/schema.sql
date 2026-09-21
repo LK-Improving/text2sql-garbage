@@ -85,3 +85,13 @@ CREATE INDEX idx_manifest_status     ON t_route_manifest (status);
 CREATE INDEX idx_alert_vehicle       ON t_alert (vehicle_id);
 CREATE INDEX idx_alert_time          ON t_alert (alert_time);
 CREATE INDEX idx_bill_manifest       ON t_weigh_bill (manifest_id);
+
+-- 每日大模型调用配额计数表（限流用，不被上方 DROP 清理，重灌业务数据不丢计数）
+-- 说明：本表不进入业务查询白名单（validateSQL 的 ALLOWED_TABLES），只由服务端 lib/rate-limit.ts 直连读写。
+CREATE TABLE IF NOT EXISTS t_rate_limit (
+    quota_date  DATE        PRIMARY KEY,            -- 计日主键，按北京时间自然日
+    used_count  INTEGER     NOT NULL DEFAULT 0,     -- 当日已消耗的大模型调用次数
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE  t_rate_limit IS '每日大模型调用配额计数（生产限流）';
+COMMENT ON COLUMN t_rate_limit.used_count IS '当日已消耗的大模型调用次数';

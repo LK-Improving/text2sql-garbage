@@ -6,7 +6,7 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { validateSQL } from '@/lib/validator';
-import { buildResultComponents } from '@/lib/result-builder';
+import { buildResultComponents, buildRowsSummary } from '@/lib/result-builder';
 import { classifyError } from '@/lib/error-hints';
 
 export const runtime = 'nodejs';
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
   // 2) 执行查询（执行期错误返回 ok:false，交给前端展示，不算 500）
   try {
     const res = await query(sql);
-    const components = buildResultComponents({ rows: res.rows, fields: res.fields });
+    const dbResult = { rows: res.rows, fields: res.fields };
+    const components = buildResultComponents(dbResult);
     if (!components.length) {
       components.push({
         type: 'markdown',
@@ -56,7 +57,9 @@ export async function POST(req: NextRequest) {
       ok: true,
       sql,
       title: '自定义查询结果',
-      summary: `已重新执行修改后的 SQL，共返回 **${res.rows.length}** 行。`,
+      // 摘要里带上具体数值：单行结果（SUM/COUNT）直接把值写出来，
+      // 否则对话区只会显示「共 N 行」，用户会以为重新执行没生效。
+      summary: buildRowsSummary(dbResult),
       components,
     });
   } catch (err: any) {

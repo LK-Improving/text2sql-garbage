@@ -50,6 +50,19 @@ describe('validateSQL — 只读校验', () => {
     expect(r.valid).toBe(false);
   });
 
+  it('拦下 SELECT INTO 建表（写操作遗漏项）', () => {
+    const r = validateSQL('SELECT * INTO t_new FROM t_route_manifest');
+    expect(r.valid).toBe(false);
+    expect(r.error).toContain('禁止创建新表');
+  });
+
+  it('结尾行注释不会让强制 LIMIT 失效', () => {
+    const r = validateSQL('SELECT id FROM t_region -- 备注');
+    expect(r.valid).toBe(true);
+    expect(r.sql).toContain('LIMIT 1000');
+    expect(r.sql).not.toContain('-- 备注 LIMIT');
+  });
+
   it('拦下白名单外的表', () => {
     const r = validateSQL('SELECT * FROM t_secret LIMIT 10');
     expect(r.valid).toBe(false);

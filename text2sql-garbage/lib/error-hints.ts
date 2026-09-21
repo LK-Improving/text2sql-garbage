@@ -35,7 +35,10 @@ export function classifyError(rawMessage: string): ErrorHint {
   const lower = msg.toLowerCase();
 
   // —— 安全校验器拦下的请求（validator.ts 的文案）——
-  if (/禁止的操作|仅允许 select|多条语句|cte 最终必须是/.test(msg)) {
+  // 注意用 i 标志：validator 的文案是「仅允许 SELECT 查询」，
+  // 旧正则写死小写 `仅允许 select` 匹配不上，导致 DELETE 这类写操作
+  // 被归到 unknown 兜底，向用户显示成「执行失败」而不是「安全拦截」。
+  if (/禁止的操作|仅允许\s*select|多条语句|cte 最终必须是/i.test(msg)) {
     return {
       category: 'permission',
       label: '安全拦截',

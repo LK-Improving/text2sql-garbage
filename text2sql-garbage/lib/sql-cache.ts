@@ -84,8 +84,10 @@ export function getCachedPlan(key: string): CacheHit | null {
     return null;
   }
 
-  // LRU 触达：重新插入以刷新迭代顺序
+  // LRU 触达：重新插入以刷新迭代顺序，同时刷新触达时间，
+  // 否则热 key 仍按首次写入时间过期（TTL 语义变成"首次写入后 N 分钟必失效"而非"闲置 N 分钟失效"）。
   store.delete(key);
+  entry.at = Date.now();
   store.set(key, entry);
 
   return { plan: entry.plan, ageMs, key };

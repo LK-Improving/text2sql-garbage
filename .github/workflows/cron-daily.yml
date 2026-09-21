@@ -1,0 +1,59 @@
+name: Daily Data Gen
+
+# M · 每日随机数据自增（Supabase 云库）
+#   - 定时（cron）：每天北京时间约 01:00（UTC 17:00）为「当天」生成一组随机清运数据，
+#     保证线上库每天都有数据（最近 7/30 天类查询不再空窗）。
+#   - workflow_dispatch：可手动触发，支持在表单里用 --date/--from/--to 等参数补历史
+#     （通过 INPUT_ARGS 透传；不填则默认「今天」）。
+#   - 复用 scripts/gen-daily.mjs（幂等：已存在的 (vehicle_id, route_date) 路单会跳过）。
+#
+# 凭据（GitHub Repo Secret，零入库）：
+#   HOSTED_DATABASE_URL  Supabase 连接串（Transaction pooler，带 ?sslmode=require&pgbouncer=true）
+
+on:
+  schedule:
+    - cron: '0 17 * * *'   # UTC 17:00 = 北京时间次日 01:00
+  workflow_dispatch:
+    inputs:
+      args:
+        description: "透传给 gen-daily.mjs 的参数，如 --from 2026-09-12 --to 2026-09-21"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  daily:
+    name: Generate today's random data
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.HOSTED_DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: text2sql-garbage/pnpm-lock.yaml
+
+      - name: Install deps (frozen-lockfile)
+        working-directory: text2sql-garbage
+        run: pnpm install --frozen-lockfile
+
+      - name: Missing HOSTED_DATABASE_URL
+        if: ${{ env.DATABASE_URL == '' }}
+        run: |
+          echo "::error::未配置 Secret HOSTED_DATABASE_URL，无法生成数据。请在仓库 Settings → Secrets 添加 Supabase 连接串后重试。"
+          exit 1
+
+      - name: Generate daily data
+        if: ${{ env.DATABASE_URL != '' }}
+        working-directory: text2sql-garbage
+        run: node scripts/gen-daily.mjs ${{ github.event.inputs.args }}

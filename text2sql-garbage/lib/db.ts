@@ -1,4 +1,14 @@
-import { Pool, type PoolConfig } from 'pg';
+import { Pool, types as pgTypes, type PoolConfig } from 'pg';
+
+// 让 date / timestamp 以**字符串**返回（YYYY-MM-DD / YYYY-MM-DD HH:mm:ss），
+// 而不是默认的 JS Date 对象。原因：pg 默认把 date 解析成 Date，经 JSON 序列化后变成
+// UTC 的 ISO 字符串（如 2026-09-12 +08:00 → "2026-09-11T16:00:00.000Z"），导致前端
+// 表格/导出里的日期**整体偏移一天**，且图表 X 轴显示成英文长日期。统一返回字符串后：
+//   - 表格/导出日期正确、无时区偏移；
+//   - 图表维度列（date）不会被 isNumericColumn 误判成数值列（CR 修复项）。
+pgTypes.setTypeParser(1082, (v: string) => v); // date
+pgTypes.setTypeParser(1114, (v: string) => v); // timestamp（无时区）
+pgTypes.setTypeParser(1184, (v: string) => v); // timestamptz（保留原始文本，如 2026-03-10 08:12:00+08）
 
 /**
  * 构造连接池配置。
@@ -39,6 +49,6 @@ pool.on('connect', (client) => {
   });
 });
 
-export const query = (text: string, params?: []) => {
+export const query = (text: string, params?: unknown[]) => {
   return pool.query(text, params);
 };

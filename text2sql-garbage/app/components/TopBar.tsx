@@ -21,6 +21,7 @@ export function TopBar({
   onToggleSidebar,
   onOpenNav,
   conversationTitle = '新对话',
+  rateLimit = null,
 }: {
   loading: boolean;
   hasResult: boolean;
@@ -31,7 +32,42 @@ export function TopBar({
   onToggleSidebar?: () => void;
   onOpenNav?: () => void;
   conversationTitle?: string;
+  rateLimit?: {
+    enabled: boolean;
+    used: number;
+    limit: number;
+    remaining: number;
+    resetAt: string | null;
+  } | null;
 }) {
+  // 限流剩余次数提示（生产启用时显示「今日剩余 N 次」，本地未启用显示「无限额」）
+  const quotaPill = (() => {
+    if (!rateLimit) return null;
+    if (!rateLimit.enabled) {
+      return (
+        <span className="hidden items-center rounded-full border border-line bg-canvas-soft px-2.5 py-1 text-[12px] font-medium text-ink-400 sm:inline-flex">
+          无限额
+        </span>
+      );
+    }
+    const r = rateLimit.remaining;
+    const cls =
+      r === 0
+        ? 'bg-red-50 text-red-600'
+        : r === 1
+          ? 'bg-amber-50 text-amber-600'
+          : 'bg-brand-50 text-brand-600';
+    return (
+      <span
+        className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium sm:inline-flex ${cls}`}
+        title={rateLimit.resetAt ? '每日 0 点（北京时间）重置' : undefined}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+        今日剩余 {r} 次
+      </span>
+    );
+  })();
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-surface/85 px-3 backdrop-blur-md lg:px-6">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -73,6 +109,8 @@ export function TopBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        {quotaPill}
+
         {hasResult && (
           <button
             type="button"
