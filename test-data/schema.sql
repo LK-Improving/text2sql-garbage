@@ -88,6 +88,8 @@ CREATE INDEX idx_bill_manifest       ON t_weigh_bill (manifest_id);
 
 -- 每日大模型调用配额计数表（限流用，不被上方 DROP 清理，重灌业务数据不丢计数）
 -- 说明：本表不进入业务查询白名单（validateSQL 的 ALLOWED_TABLES），只由服务端 lib/rate-limit.ts 直连读写。
+-- @internal 基础设施表声明：供 G6（scripts/check-schema.mjs）校验豁免资格，禁止写进 lib/schema.ts；
+--           列集合变更需同步该脚本的 INTERNAL_TABLES 期望值与 lib/rate-limit.ts 的内联 DDL。
 CREATE TABLE IF NOT EXISTS t_rate_limit (
     quota_date  DATE        PRIMARY KEY,            -- 计日主键，按北京时间自然日
     used_count  INTEGER     NOT NULL DEFAULT 0,     -- 当日已消耗的大模型调用次数

@@ -19,6 +19,13 @@ const DEFAULT_DAILY_LIMIT = Number(process.env.LLM_DAILY_LIMIT ?? '5');
 /** 进程内只建一次表；失败则下次重试（保证冷启动自愈） */
 let tableReady: Promise<void> | null = null;
 
+/**
+ * 冷启动自动建表。
+ *
+ * ⚠️ 下方内联 DDL 的列集合与 `test-data/schema.sql`、`scripts/check-schema.mjs` 的
+ *    `INTERNAL_TABLES.t_rate_limit` 期望值是同一张表的三处描述，加/删列必须三处同步，
+ *    否则 G6 会以「列集合漂移」直接判红（本表是基础设施表，故意不进 lib/schema.ts 白名单）。
+ */
 function ensureTable(): Promise<void> {
   if (!tableReady) {
     tableReady = query(
