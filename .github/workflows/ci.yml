@@ -88,6 +88,10 @@ jobs:
     env:
       # 评测库连接串（service container 固定凭证）
       DATABASE_URL: postgresql://postgres:root@localhost:5432/garbage_db
+      # 评测门禁必须跑满 41 条真实模型调用：`pnpm start` 会把 NODE_ENV 置为 production，
+      # 而限流在生产默认开启（LLM_DAILY_LIMIT=5），第 6 条起就会 429 并把大半用例打成 error。
+      # 评测环境不受演示配额约束，显式关掉。
+      RATE_LIMIT_ENABLED: "false"
       # 模型 Key 走仓库 secret（gh secret set 注入，不进 git 历史）
       API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
@@ -108,6 +112,15 @@ jobs:
           node-version: 20
           cache: pnpm
           cache-dependency-path: text2sql-garbage/pnpm-lock.yaml
+
+      # 密钥缺失守卫：不拦的话 41 条用例全以 HTTP 500 失败，报告里看不出根因
+      - name: "G7 Guard: model secrets present"
+        run: |
+          if [ -z "$API_KEY" ] || [ -z "$BASE_URL" ]; then
+            echo "::error::未配置 Secret DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL，Eval Gate 无法调用大模型。请先执行 gh secret set DEEPSEEK_API_KEY。"
+            exit 1
+          fi
+          echo "✅ 模型 secret 已就绪（BASE_URL 与 MODEL_NAME 不打印，避免泄漏）"
 
       # 评测门禁同样需要干净依赖 + 构建产物
       - name: "G1 Install"
