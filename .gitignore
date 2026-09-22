@@ -28,5 +28,7 @@ npm-debug.log*
 # ── 项目特定排除 ──
 # WorkBuddy 截图产物（二进制，无需纳入版本控制）
 .workbuddy/shots/
+# WorkBuddy / 调试临时产物（截图、从 CI 下载的 artifact 副本等，均可重建）
+.workbuddy/tmp/
 # create-next-app 初始 npm 残留锁文件（本项目使用 pnpm，以 pnpm-lock.yaml 为准）
 package-lock.json

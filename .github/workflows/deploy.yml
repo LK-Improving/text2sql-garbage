@@ -51,6 +51,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 密钥缺失守卫：不拦的话 netlify-cli 会先装 ~20s 再报 “Authentication required”，
+      # 而在 CI 长期红的环境里这条链路可以静默失效很久（本仓库实际踩过）。
+      - name: "Guard: Netlify secrets present"
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "::error::未配置 Secret NETLIFY_AUTH_TOKEN / NETLIFY_SITE_ID，无法部署到 Netlify。请先执行：gh secret set NETLIFY_AUTH_TOKEN 与 gh secret set NETLIFY_SITE_ID。"
+            exit 1
+          fi
+          echo "✅ Netlify secret 已就绪（TOKEN 与 SITE_ID 不打印）"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

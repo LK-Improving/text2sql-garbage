@@ -33,11 +33,18 @@
    但若做 KPI 同比图需注意。
 7. **组件构建单一数据源 = `lib/result-builder.ts`**（`buildTableComponent/buildEchartsComponent/buildResultComponents`），
    `/api/chat` 与 `/api/execute` 必须共用，别再各写一套。
+   摘要文案同样收在这里：`buildRowsSummary(dbResult)`（2026-09-21 新增）——
+   单行结果直接把字段值写进 summary，因为 `/api/execute` 的 components 里没有 markdown 结论，
+   对话区正文只取 summary，只报「共 N 行」会让用户以为重新执行没生效。
 8. **两个补充接口**：`POST /api/execute`（编辑后重跑 SQL，**不走大模型**，仍过 `validateSQL`）；
    `POST /api/export-excel`（本地 `exceljs` 生成 xlsx 附件下载，**不依赖 OSS**，落盘 `downloads/`，已 gitignore）。
 9. **Excel 导出走本地方案**，`ali-oss` / `@aws-sdk/*` 依赖虽在但未启用；不要再引入 OSS 凭证为前提的实现。
 10. 前端 `ResultPanel`：SQL 页签用 Monaco（`components/SqlEditor.tsx`，CDN 加载）可编辑 + 「重新执行」；
     导出按钮区分「CSV」（前端生成）与「Excel」（服务端 exceljs）。
+    **「重新执行」的呈现契约（2026-09-21 定）**：成功后必须 ① `setTab('overview')` 切到查询结果、
+    ② `setPanelDismissed(false)` 展开面板、③ 给 `Turn` 打 `rerunAt`；思考过程里的「模型输出」区块
+    渲染的是 `turn.stream`（LLM 原始流），**永远不随重新执行更新**，所以必须靠徽标 + 说明文字
+    讲清「这是首次生成的原貌」。别把它当成 bug 去改 stream。
 11. **安全/拒绝场景统一走优雅 `result` 事件，不要抛 `error` 事件**。`app/api/chat/route.ts` 里两类拒绝都回 `result`：
     (a) LLM 主动返回空 SQL（删/改/无关问题）→ 拒绝说明；
     (b) `validateSQL` 拦截（写操作/非白名单表/多语句）→ 同样回 `result`（中文 `formatErrorHint` 说明 + `[DONE]` 收尾）。
