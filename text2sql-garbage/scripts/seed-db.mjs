@@ -72,15 +72,24 @@ const DATABASE_URL = resolveDatabaseUrl();
  * 仅加密、不校验证书（等价 sslmode=no-verify）；连接仍是 TLS 加密的。
  */
 function buildClientConfig() {
+  // 解析失败要在这里就报可读错误：pg-connection-string 内部也用 new URL()，
+  // 但它抛的 TypeError 会把输入 REDACTED，日志里只剩 “Invalid URL” 无从下手。
+  let url;
   try {
-    const url = new URL(DATABASE_URL);
-    if (/(^|\.)supabase\.(co|com)$/.test(url.hostname)) {
-      url.searchParams.delete('sslmode');
-      url.searchParams.delete('ssl');
-      return { connectionString: url.toString(), ssl: { rejectUnauthorized: false } };
-    }
+    url = new URL(DATABASE_URL);
   } catch {
-    /* 非法 URL 时交由下方连接逻辑报错 */
+    console.error(
+      `❌ DATABASE_URL 不是合法 URL（长度 ${DATABASE_URL.length}）。\n` +
+        '   常见原因：仍是 `<password>` 这类未替换的模板串，或密码含未编码的特殊字符。\n' +
+        '   取真实值：Supabase Dashboard → Connect → URI，并对密码做 percent-encode。\n' +
+        '   设置位置：环境变量 DATABASE_URL，或 text2sql-garbage/.env。',
+    );
+    process.exit(1);
+  }
+  if (/(^|\.)supabase\.(co|com)$/.test(url.hostname)) {
+    url.searchParams.delete('sslmode');
+    url.searchParams.delete('ssl');
+    return { connectionString: url.toString(), ssl: { rejectUnauthorized: false } };
   }
   return { connectionString: DATABASE_URL };
 }
